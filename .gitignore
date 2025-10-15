@@ -1,0 +1,34 @@
+# Node/JS
+node_modules/
+npm-debug.log*
+yarn.lock
+pnpm-lock.yaml
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Env / secrets
+.env
+.env.*.local
+
+# OS/editor
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
+
+# Docker
+*.pid
+*.log
+dist/
+build/
+
+# Test artifacts
+.coverage
+htmlcov/
+.playwright/
