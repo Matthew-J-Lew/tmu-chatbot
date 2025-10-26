@@ -1,18 +1,19 @@
+# Docker version
 version: "3.9"
 
+# Each service is a container running a piece of software
 services:
+
+  # pg container, posgres with pgvector extension for the rag database
   pg:
     image: pgvector/pgvector:pg16
-    container_name: arts_pg
+    # basic db stuff for now, maybe change later
     environment:
       POSTGRES_DB: ragdb
       POSTGRES_USER: rag
       POSTGRES_PASSWORD: rag
-    ports:
-      - "5432:5432"
+    ports: ["5432:5432"]
     volumes:
-      # Auto-run schema on first init:
-      - ./app/ingestion/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
       - pgdata:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U rag -d ragdb"]
@@ -20,62 +21,42 @@ services:
       timeout: 3s
       retries: 20
 
+  # Ollama container, runs the LLM server (maybe switch to openai later)
   ollama:
     image: ollama/ollama:latest
-    container_name: arts_ollama
-    ports:
-      - "11434:11434"
+    ports: ["11434:11434"]
     volumes:
       - ollama:/root/.ollama
     healthcheck:
-      test: ["CMD", "bash", "-lc", "curl -s http://localhost:11434/api/tags || exit 1"]
+      test: ["CMD", "ollama", "list"]   # <- use the built-in CLI instead of curl
       interval: 10s
       timeout: 5s
-      retries: 20
+      retries: 30
+      start_period: 60s
 
+  # API container, will connect to the db and LLM later on 
   api:
     build: ./app/api
-    container_name: arts_api
     environment:
       PGHOST: pg
       PGUSER: rag
       PGPASSWORD: rag
       PGDATABASE: ragdb
       OLLAMA_HOST: http://ollama:11434
-      LLM_MODEL: llama3.1:8b-instruct
-      EMBEDDING_MODEL: sentence-transformers/all-MiniLM-L6-v2
-      PYTHONUNBUFFERED: "1"
     depends_on:
       pg:
         condition: service_healthy
       ollama:
         condition: service_healthy
-    ports:
-      - "8000:8000"
+    ports: ["8000:8000"]
 
-  # Optional one-shot ingestion container.
+  # Ingestion container for our data pipeline
   ingestion:
     build: ./app/ingestion
-    container_name: arts_ingestion
-    profiles: ["ingest"]        # only runs with: docker compose --profile ingest up ingestion
-    environment:
-      PGHOST: pg
-      PGUSER: rag
-      PGPASSWORD: rag
-      PGDATABASE: ragdb
+    profiles: ["ingest"]
     depends_on:
       pg:
         condition: service_healthy
-
-  # Optional static widget preview (serve /app/frontend)
-  # frontend:
-  #   image: nginx:alpine
-  #   volumes:
-  #     - ./app/frontend:/usr/share/nginx/html:ro
-  #   ports:
-  #     - "8080:80"
-  #   depends_on:
-  #     - api
 
 volumes:
   pgdata:
