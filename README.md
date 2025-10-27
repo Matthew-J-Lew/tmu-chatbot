@@ -1,3 +1,4 @@
+MILESTONE 0 SETUP:
 1. ssh into the TMU virtual machine
 2. install docker and docker compose plugin
    sudo apt update

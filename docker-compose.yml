@@ -1,5 +1,5 @@
 # Docker version
-version: "3.9"
+# version: "3.9"
 
 # Each service is a container running a piece of software
 services:
@@ -15,6 +15,7 @@ services:
     ports: ["5432:5432"]
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - ./app/ingestion/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U rag -d ragdb"]
       interval: 5s
