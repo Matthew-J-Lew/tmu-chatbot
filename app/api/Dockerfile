@@ -1,9 +1,16 @@
 FROM python:3.11-slim
 
 WORKDIR /app
-COPY requirements.txt .
+
+# Copy requirements for the API service
+COPY app/api/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY main.py .
-EXPOSE 8000
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Copy the whole app package (api, rag, ingestion, etc.)
+COPY app /app/app
+
+# Optionally keep your existing main entrypoint
+COPY app/api/main.py /app/main.py
+
+# Default command for the API container
+CMD ["python", "main.py"]

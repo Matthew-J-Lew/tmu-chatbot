@@ -65,3 +65,18 @@ MILESTONE 1.5 OPTIONAL VISUALIZATION:
 5. you can browse, filter, and export data through the web interface
 6. milestone 1.5 is complete when you can visualize the chunks table and confirm embeddings exist
 
+MILESTONE 2 RETRIEVAL AND RERANKING (RAG SYSTEM)
+1. Build the API image to pick up requirements + code changes
+   docker compose build api
+2. Start postgres, Ollama, and API
+   docker compose up -d pg ollama api
+3. Verify containers
+   docker ps
+   confirm that pg, ollama, and api are running
+TESTING:
+1. Open a shell inside the API container
+   docker compose run --rm api bash
+   - You can then ask questions with:
+   python -c "from app.rag.debug import debug_retrieve; debug_retrieve('INSERT QUESTION HERE', k=6, num_candidates=30)"
+   note that k and num_candidates can be tweaked
+2. Milestone 2 is complete when we can call retrieve(query, k) and it gives us the best pages/chunks for the question

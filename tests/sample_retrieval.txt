@@ -1,0 +1,237 @@
+root@859fd84ac778:/app# python -c "from app.rag.debug import debug_retrieve; debug_retrieve('How do I apply to the Faculty of Arts?', k=6, num_candidates=30)"
+================================================================================
+Query: 'How do I apply to the Faculty of Arts?'
+Total latency: 2.377 s
+Returned 6 chunks (k=6, num_candidates=30)
+================================================================================
+
+[1] chunk_id=10  source_url=https://www.torontomu.ca/arts/undergraduate/programs/
+chunk_url:  https://www.torontomu.ca/arts/undergraduate/programs/
+rerank_score=0.9488  hybrid_score=0.9998
+Preview:
+ Major lets you earn a degree in two primary subjects such as English and History or Philosophy and Criminology. While a single Major counts for 24 to 30 core courses of your degree program, a Double Major comprises 13-15 courses in each of the two subject areas. (Only offered in the Bachelor of Arts degree.) Choose a minor Adding a Minor (or Minors) to your degree gives you an opportunity to s...
+
+[2] chunk_id=3  source_url=https://www.torontomu.ca/arts/undergraduate/programs/
+chunk_url:  https://www.torontomu.ca/arts/undergraduate/programs/
+rerank_score=0.7897  hybrid_score=1.0610
+Preview:
+You are now in the main content area Undergraduate programs Undergraduate programs Study what you love and develop marketable skills employers need. The Faculty of Arts offers an array of programs to unlock unlimited 
+opportunities. Explore program options 13 undergraduate programs. 10 departments. Explore your options and choose the path that’s right for you. Arts and Contemporary Studies - BA ...
+
+[3] chunk_id=1  source_url=https://www.torontomu.ca/arts/
+chunk_url:  https://www.torontomu.ca/arts/
+rerank_score=0.0389  hybrid_score=0.9814
+Preview:
+You are now in the main content area Your journey starts here At the Faculty of Arts, we’re driven by curiosity, creativity, and a deep commitment to understanding the world around us. We explore big ideas, engage with complex issues and ask thoughtful questions that open up new ways of thinking. Through dynamic teaching, community partnerships and world-class research, we connect knowledge wit...
+
+[4] chunk_id=9  source_url=https://www.torontomu.ca/arts/undergraduate/programs/
+chunk_url:  https://www.torontomu.ca/arts/undergraduate/programs/
+rerank_score=-3.5244  hybrid_score=1.0483
+Preview:
+, History, Politics and Governance  Your future career Career Counsellor, Community Manager, Diversity and Inclusion Specialist, Guidance Counsellor, Human Rights Officer, Public Engagement Advisor, Public Relations 
+Manager, Research Assistant Explore program requirements 2,560 Hours of paid, full-time work experience available over the course of your degree Undeclared Arts - BA (Hons) Are you...
+
+[5] chunk_id=2  source_url=https://www.torontomu.ca/arts/
+chunk_url:  https://www.torontomu.ca/arts/
+rerank_score=-4.1704  hybrid_score=1.0216
+Preview:
+ co-op opportunities and more, you’ll be empowered to start effecting positive change—and establish yourself professionally—before you even graduate. 100% Undergraduate programs with experiential learning Research and innovation Our research spans democratic engagement, Indigenous governance, digital humanities, environmental sustainability, mental health and well-being, migration and diaspora ...
+
+[6] chunk_id=271  source_url=https://www.torontomu.ca/content/dam/graduate/Calendar/YSGPS-Full-Calendar-25-26.pdf
+chunk_url:  https://www.torontomu.ca/content/dam/graduate/Calendar/YSGPS-Full-Calendar-25-26.pdf
+rerank_score=-4.5248  hybrid_score=0.9405
+Preview:
+ A program of supervised advanced  study will be negotiated on an individual basis with the faculty supervisor.  A proposal will require the approval of both the faculty  supervisor and program director before enrollment.  1 Credit   +++++       ♀FASHION     CURRICULUM  First Offered Fall 2010   Master of Arts   DEGREE REQUIREMENTS   Master’s Research/Creative Project   FS8000   Graduate Semina...
+
+================================================================================
+
+root@859fd84ac778:/app# python -c "from app.rag.debug import debug_retrieve; debug_retrieve('What undergraduate programs are offered in the Faculty of Arts?', k=6, num_candidates=30)"
+================================================================================
+Query: 'What undergraduate programs are offered in the Faculty of Arts?'
+Total latency: 2.489 s
+Returned 6 chunks (k=6, num_candidates=30)
+================================================================================
+
+[1] chunk_id=3  source_url=https://www.torontomu.ca/arts/undergraduate/programs/
+chunk_url:  https://www.torontomu.ca/arts/undergraduate/programs/
+rerank_score=5.7591  hybrid_score=1.3607
+Preview:
+You are now in the main content area Undergraduate programs Undergraduate programs Study what you love and develop marketable skills employers need. The Faculty of Arts offers an array of programs to unlock unlimited 
+opportunities. Explore program options 13 undergraduate programs. 10 departments. Explore your options and choose the path that’s right for you. Arts and Contemporary Studies - BA ...
+
+[2] chunk_id=2  source_url=https://www.torontomu.ca/arts/
+chunk_url:  https://www.torontomu.ca/arts/
+rerank_score=2.2633  hybrid_score=1.2372
+Preview:
+ co-op opportunities and more, you’ll be empowered to start effecting positive change—and establish yourself professionally—before you even graduate. 100% Undergraduate programs with experiential learning Research and innovation Our research spans democratic engagement, Indigenous governance, digital humanities, environmental sustainability, mental health and well-being, migration and diaspora ...
+
+[3] chunk_id=1  source_url=https://www.torontomu.ca/arts/
+chunk_url:  https://www.torontomu.ca/arts/
+rerank_score=2.2171  hybrid_score=1.1933
+Preview:
+You are now in the main content area Your journey starts here At the Faculty of Arts, we’re driven by curiosity, creativity, and a deep commitment to understanding the world around us. We explore big ideas, engage with complex issues and ask thoughtful questions that open up new ways of thinking. Through dynamic teaching, community partnerships and world-class research, we connect knowledge wit...
+
+[4] chunk_id=9  source_url=https://www.torontomu.ca/arts/undergraduate/programs/
+chunk_url:  https://www.torontomu.ca/arts/undergraduate/programs/
+rerank_score=-0.5530  hybrid_score=1.2321
+Preview:
+, History, Politics and Governance  Your future career Career Counsellor, Community Manager, Diversity and Inclusion Specialist, Guidance Counsellor, Human Rights Officer, Public Engagement Advisor, Public Relations 
+Manager, Research Assistant Explore program requirements 2,560 Hours of paid, full-time work experience available over the course of your degree Undeclared Arts - BA (Hons) Are you...
+
+[5] chunk_id=40  source_url=https://www.torontomu.ca/calendar/2025-2026/dates/
+chunk_url:  https://www.torontomu.ca/calendar/2025-2026/dates/
+rerank_score=-0.7562  hybrid_score=1.0405
+Preview:
+ undergraduate classes for Engineering classes offered in ENGR sessions. 01-20-2026 01-20-2026 Grades, Standings, and Appeal Related Dates Last Day to Request Missing Fall Term Undergraduate Grades Last day to request missing Fall undergraduate grades. Students should contact, in writing, the faculty member or teaching department. 01-21-2026 01-21-2026 Enrolment and Refund Dates End of Winter T...
+
+[6] chunk_id=10  source_url=https://www.torontomu.ca/arts/undergraduate/programs/
+chunk_url:  https://www.torontomu.ca/arts/undergraduate/programs/
+rerank_score=-0.8309  hybrid_score=1.0613
+Preview:
+ Major lets you earn a degree in two primary subjects such as English and History or Philosophy and Criminology. While a single Major counts for 24 to 30 core courses of your degree program, a Double Major comprises 13-15 courses in each of the two subject areas. (Only offered in the Bachelor of Arts degree.) Choose a minor Adding a Minor (or Minors) to your degree gives you an opportunity to s...
+
+================================================================================
+
+root@859fd84ac778:/app# python -c \"from app.rag.debug import debug_retrieve; debug_retrieve('What are the admission requirements for international Arts students?', k=6, num_candidates=30)\"
+bash: syntax error near unexpected token `'What are the admission requirements for international Arts students?','
+root@859fd84ac778:/app# python -c "from app.rag.debug import debug_retrieve; debug_retrieve('What are the admission requirements for international Arts students?', k=6, num_candidates=30)"
+================================================================================
+Query: 'What are the admission requirements for international Arts students?'
+Total latency: 2.581 s
+Returned 6 chunks (k=6, num_candidates=30)
+================================================================================
+
+[1] chunk_id=61  source_url=https://www.torontomu.ca/admissions/undergraduate/requirements/
+chunk_url:  https://www.torontomu.ca/admissions/undergraduate/requirements/
+rerank_score=2.2941  hybrid_score=1.3373
+Preview:
+You are now in the main content area Discover TMU: Open House Saturday, November 8, 2025 | 11 a.m. - 4 p.m. Register for Open House Admission requirements Ontario secondary school students Canadian secondary school students Homeschooled students Indigenous students International high school students Mature students Special students University and college transfer students Program and subject re...
+
+[2] chunk_id=2  source_url=https://www.torontomu.ca/arts/
+chunk_url:  https://www.torontomu.ca/arts/
+rerank_score=-0.3762  hybrid_score=1.2461
+Preview:
+ co-op opportunities and more, you’ll be empowered to start effecting positive change—and establish yourself professionally—before you even graduate. 100% Undergraduate programs with experiential learning Research and innovation Our research spans democratic engagement, Indigenous governance, digital humanities, environmental sustainability, mental health and well-being, migration and diaspora ...
+
+[3] chunk_id=9  source_url=https://www.torontomu.ca/arts/undergraduate/programs/
+chunk_url:  https://www.torontomu.ca/arts/undergraduate/programs/
+rerank_score=-4.4057  hybrid_score=1.1506
+Preview:
+, History, Politics and Governance  Your future career Career Counsellor, Community Manager, Diversity and Inclusion Specialist, Guidance Counsellor, Human Rights Officer, Public Engagement Advisor, Public Relations 
+Manager, Research Assistant Explore program requirements 2,560 Hours of paid, full-time work experience available over the course of your degree Undeclared Arts - BA (Hons) Are you...
+
+[4] chunk_id=140  source_url=https://www.torontomu.ca/content/dam/graduate/Calendar/YSGPS-Full-Calendar-25-26.pdf
+chunk_url:  https://www.torontomu.ca/content/dam/graduate/Calendar/YSGPS-Full-Calendar-25-26.pdf
+rerank_score=-4.8247  hybrid_score=1.0637
+Preview:
+  An intensive introduction to the major theories of communication and culture.  The course will provide an overview of the major themes  and thinkers in the area.  Antirequisite AKCEFG4000 3.0 (York University).This 
+course is a non-degree/non-credit course designed to  provide background training and may be required of some students as conditions of admissions.  1 Credit   CC8701  Understandin...
+
+[5] chunk_id=62  source_url=https://www.torontomu.ca/admissions/tuition-fees/
+chunk_url:  https://www.torontomu.ca/admissions/tuition-fees/
+rerank_score=-5.1903  hybrid_score=1.0509
+Preview:
+You are now in the main content area Discover TMU: Open House Saturday, November 8, 2025 | 11 a.m. - 4 p.m. Register for Open House Tuition and fees Tuition and fees Undergraduate full-time students The cost of attending Toronto Metropolitan University (TMU) varies by Canadian citizenship or residency, Ontario residency, by program and whether you live in residence. For full-time undergraduate ...
+
+[6] chunk_id=92  source_url=https://www.torontomu.ca/content/dam/graduate/Calendar/YSGPS-Full-Calendar-25-26.pdf
+chunk_url:  https://www.torontomu.ca/content/dam/graduate/Calendar/YSGPS-Full-Calendar-25-26.pdf
+rerank_score=-5.2822  hybrid_score=1.0315
+Preview:
+ the  Canadian  construction  industry.    Antirequisite  ASC850.  1 Credit   AR8226 Directed Studies in Canadian Construction  This course is available to internationally educated students enrolled in the graduate program in architecture, who lack the knowledge  of Canadian Construction.  Students are required to present appropriate assignments (exam, report, etc.) for assessment as agreed  by...
+
+================================================================================
+
+root@859fd84ac778:/app# python -c "from app.rag.debug import debug_retrieve; debug_retrieve('Who do I contact for academic advising in the Faculty of Arts?', k=6, num_candidates=30)"
+================================================================================
+Query: 'Who do I contact for academic advising in the Faculty of Arts?'
+Total latency: 2.579 s
+Returned 6 chunks (k=6, num_candidates=30)
+================================================================================
+
+[1] chunk_id=1  source_url=https://www.torontomu.ca/arts/
+chunk_url:  https://www.torontomu.ca/arts/
+rerank_score=-4.1835  hybrid_score=0.9608
+Preview:
+You are now in the main content area Your journey starts here At the Faculty of Arts, we’re driven by curiosity, creativity, and a deep commitment to understanding the world around us. We explore big ideas, engage with complex issues and ask thoughtful questions that open up new ways of thinking. Through dynamic teaching, community partnerships and world-class research, we connect knowledge wit...
+
+[2] chunk_id=3  source_url=https://www.torontomu.ca/arts/undergraduate/programs/
+chunk_url:  https://www.torontomu.ca/arts/undergraduate/programs/
+rerank_score=-4.2853  hybrid_score=1.0463
+Preview:
+You are now in the main content area Undergraduate programs Undergraduate programs Study what you love and develop marketable skills employers need. The Faculty of Arts offers an array of programs to unlock unlimited 
+opportunities. Explore program options 13 undergraduate programs. 10 departments. Explore your options and choose the path that’s right for you. Arts and Contemporary Studies - BA ...
+
+[3] chunk_id=271  source_url=https://www.torontomu.ca/content/dam/graduate/Calendar/YSGPS-Full-Calendar-25-26.pdf
+chunk_url:  https://www.torontomu.ca/content/dam/graduate/Calendar/YSGPS-Full-Calendar-25-26.pdf
+rerank_score=-5.3553  hybrid_score=0.9394
+Preview:
+ A program of supervised advanced  study will be negotiated on an individual basis with the faculty supervisor.  A proposal will require the approval of both the faculty  supervisor and program director before enrollment.  1 Credit   +++++       ♀FASHION     CURRICULUM  First Offered Fall 2010   Master of Arts   DEGREE REQUIREMENTS   Master’s Research/Creative Project   FS8000   Graduate Semina...
+
+[4] chunk_id=28  source_url=https://www.torontomu.ca/calendar/2025-2026/dates/
+chunk_url:  https://www.torontomu.ca/calendar/2025-2026/dates/
+rerank_score=-5.5931  hybrid_score=0.9090
+Preview:
+ only). Students, in writing, should contact the faculty member or teaching department. 07-30-2025 07-30-2025 Transfer Credit Deadlines Transfer Credit Deadline Last day for students to file an application for Transfer Credit to have the results for the start of Fall 2025 Term 07-31-2025 07-31-2025 Graduation and Convocation Last Day to Apply for Graduation for Spring/Summer Term Graduation (fa...
+
+[5] chunk_id=9  source_url=https://www.torontomu.ca/arts/undergraduate/programs/
+chunk_url:  https://www.torontomu.ca/arts/undergraduate/programs/
+rerank_score=-6.5163  hybrid_score=1.0100
+Preview:
+, History, Politics and Governance  Your future career Career Counsellor, Community Manager, Diversity and Inclusion Specialist, Guidance Counsellor, Human Rights Officer, Public Engagement Advisor, Public Relations 
+Manager, Research Assistant Explore program requirements 2,560 Hours of paid, full-time work experience available over the course of your degree Undeclared Arts - BA (Hons) Are you...
+
+[6] chunk_id=2  source_url=https://www.torontomu.ca/arts/
+chunk_url:  https://www.torontomu.ca/arts/
+rerank_score=-7.7373  hybrid_score=1.0245
+Preview:
+ co-op opportunities and more, you’ll be empowered to start effecting positive change—and establish yourself professionally—before you even graduate. 100% Undergraduate programs with experiential learning Research and innovation Our research spans democratic engagement, Indigenous governance, digital humanities, environmental sustainability, mental health and well-being, migration and diaspora ...
+
+================================================================================
+
+root@859fd84ac778:/app# python -c "from app.rag.debug import debug_retrieve; debug_retrieve('Where can I find co-op or experiential learning opportunities in Arts?', k=6, num_candidates=30)"
+================================================================================
+Query: 'Where can I find co-op or experiential learning opportunities in Arts?'
+Total latency: 2.602 s
+Returned 6 chunks (k=6, num_candidates=30)
+================================================================================
+
+[1] chunk_id=2  source_url=https://www.torontomu.ca/arts/
+chunk_url:  https://www.torontomu.ca/arts/
+rerank_score=3.1445  hybrid_score=1.2404
+Preview:
+ co-op opportunities and more, you’ll be empowered to start effecting positive change—and establish yourself professionally—before you even graduate. 100% Undergraduate programs with experiential learning Research and innovation Our research spans democratic engagement, Indigenous governance, digital humanities, environmental sustainability, mental health and well-being, migration and diaspora ...
+
+[2] chunk_id=9  source_url=https://www.torontomu.ca/arts/undergraduate/programs/
+chunk_url:  https://www.torontomu.ca/arts/undergraduate/programs/
+rerank_score=0.3468  hybrid_score=1.2533
+Preview:
+, History, Politics and Governance  Your future career Career Counsellor, Community Manager, Diversity and Inclusion Specialist, Guidance Counsellor, Human Rights Officer, Public Engagement Advisor, Public Relations 
+Manager, Research Assistant Explore program requirements 2,560 Hours of paid, full-time work experience available over the course of your degree Undeclared Arts - BA (Hons) Are you...
+
+[3] chunk_id=1  source_url=https://www.torontomu.ca/arts/
+chunk_url:  https://www.torontomu.ca/arts/
+rerank_score=0.2724  hybrid_score=1.2787
+Preview:
+You are now in the main content area Your journey starts here At the Faculty of Arts, we’re driven by curiosity, creativity, and a deep commitment to understanding the world around us. We explore big ideas, engage with complex issues and ask thoughtful questions that open up new ways of thinking. Through dynamic teaching, community partnerships and world-class research, we connect knowledge wit...
+
+[4] chunk_id=8  source_url=https://www.torontomu.ca/arts/undergraduate/programs/
+chunk_url:  https://www.torontomu.ca/arts/undergraduate/programs/
+rerank_score=-1.2576  hybrid_score=1.1913
+Preview:
+ behind one’s thoughts to helping others overcome challenges, this in-demand program sets you up with the critical thinking, problem-solving and effective communication skills you need to succeed in a broad range of careers, from direct patient care to market research.  Your program Full time: 4 years Full-time co-op: 5 years  Your future career Behaviour Therapist, Counsellor, Gerontologist,...
+
+[5] chunk_id=5  source_url=https://www.torontomu.ca/arts/undergraduate/programs/
+chunk_url:  https://www.torontomu.ca/arts/undergraduate/programs/
+rerank_score=-2.9048  hybrid_score=1.1786
+Preview:
+reader, Research Coordinator, Teacher, Lawyer Explore program requirements “The best thing about co-op is the chance to make a name for myself and feel confident in my job experiences before graduating from university.” — Nora Dempsey, English (Co-op), Student Environment and Urban Sustainability - BA (Hons) If you want to build greener, more livable cities, you’ll first need to learn how to ta...
+
+[6] chunk_id=6  source_url=https://www.torontomu.ca/arts/undergraduate/programs/
+chunk_url:  https://www.torontomu.ca/arts/undergraduate/programs/
+rerank_score=-3.9705  hybrid_score=1.0897
+Preview:
+Hons) Journey through the past to understand the events that shape our world today. Through an in-depth study of historical events and cultural developments, you’ll gain a deeper understanding of the forces behind some of humanity’s greatest challenges and achievements. This supportive, career-focused program will set you up with the critical thinking, cultural awareness and research skills you...
+
+================================================================================
+
+root@859fd84ac778:/app# 

@@ -37,7 +37,9 @@ services:
 
   # API container, will connect to the db and LLM later on 
   api:
-    build: ./app/api
+    build:
+      context: .
+      dockerfile: app/api/Dockerfile
     environment:
       PGHOST: pg
       PGUSER: rag
@@ -50,6 +52,7 @@ services:
       ollama:
         condition: service_healthy
     ports: ["8000:8000"]
+
 
   # Ingestion container for our data pipeline
   ingestion:
