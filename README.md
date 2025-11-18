@@ -1,5 +1,5 @@
 MILESTONE 0 SETUP:
-1. ssh into the TMU virtual machine
+1. ssh/login in to a TMU virtual machine/new general machine
 2. install docker and docker compose plugin
    sudo apt update
    sudo apt install -y docker.io docker-compose-plugin
@@ -7,10 +7,9 @@ MILESTONE 0 SETUP:
    newgrp docker
 3. clone the repository
    cd /opt
-   sudo git clone [https://github.com/](https://github.com/)<your-org-or-username>/arts-ai-chatbot.git
-   cd arts-ai-chatbot
-4. copy environment file
-   cp .env.example .env
+   sudo git clone https://github.com/Matthew-J-Lew/tmu-chatbot.git
+   cd into the project file
+4. Retrieve environment variables
 5. build and start containers
    docker compose up -d --build
 6. verify that containers are running
@@ -20,9 +19,7 @@ MILESTONE 0 SETUP:
    docker compose exec ollama ollama pull llama3.1:8b
 8. confirm model is installed
    docker compose exec ollama ollama list
-9. check health of API
-   curl [http://localhost:8000/healthz](http://localhost:8000/healthz)
-10. milestone 0 is complete when docker ps shows postgres, ollama, and api all healthy and responding
+9. milestone 0 is complete when docker ps shows postgres, ollama, and api all healthy and responding
 
 MILESTONE 1 INGESTION PIPELINE:
 
@@ -42,7 +39,7 @@ MILESTONE 1 INGESTION PIPELINE:
    the count should be 50+ after ingesting 3–5 official TMU pages
 7. optionally view sample data
    docker compose exec pg psql -U rag -d ragdb -c "SELECT * FROM v_chunks_basic LIMIT 5;"
-8. milestone 1 is complete when 50+ chunks are stored and verified
+8. milestone 1 is complete when we can ingest chunks from all the sources in the allowlist.yaml
 
 MILESTONE 1.5 OPTIONAL VISUALIZATION:
 
