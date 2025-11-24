@@ -77,3 +77,19 @@ TESTING:
    python -c "from app.rag.debug import debug_retrieve; debug_retrieve('INSERT QUESTION HERE', k=6, num_candidates=30)"
    note that k and num_candidates can be tweaked
 2. Milestone 2 is complete when we can call retrieve(query, k) and it gives us the best pages/chunks for the question
+
+MILESTONE 3 LLM CALL (MVP of the whole system)
+1. Ensure all containers are running:
+- docker compose up -d --build
+- docker ps
+2. Test the health of the endpoint
+- curl http://localhost:8000/healthz
+- It should return {"status":"ok"}
+3. Test the chat endpoint (this is powershell syntax):
+- (Invoke-WebRequest -Uri "http://localhost:8000/api/chat" `
+  -Method POST `
+  -Headers @{ "Content-Type" = "application/json" } `
+  -Body '{"question": "YOUR QUESTION GOES HERE"}' `
+).Content
+4. If the OLLAMA LLM didn't get installed properly, use:
+docker compose exec ollama ollama pull llama3.1:8b
