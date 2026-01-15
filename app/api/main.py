@@ -1,343 +1,302 @@
 """
-main.py
+Production API entrypoint for the TMU Faculty of Arts chatbot.
 
-This file defines the FastAPI application for the TMU Faculty of Arts chatbot.
+High-level flow (non-technical explanation):
+1) A user asks a question.
+2) We look in a specialized database (RAG DB) to find the best official TMU text snippets.
+3) We build a strict prompt that tells the AI: "use only these snippets and cite them."
+4) We call the language model (Ollama) to generate an answer.
+5) We return JSON: answer + sources + performance timings.
 
-This file does the following:
-- Exposing HTTP endpoints that other services (or a frontend) can call.
-- Connecting a user question to the RAG pipeline:
-  1) Validate and clean the user question.
-  2) Retrieve the most relevant chunks of information from our TMU database.
-  3) Build a clear prompt that contains those chunks plus instructions for the AI model.
-  4) Call the local AI model (via Ollama) to generate an answer.
-  5) Perform basic redaction of sensitive information (emails, phone numbers, IDs).
-  6) Return a JSON response that includes:
-       - the answer,
-       - the sources used (for citations),
-       - and the total latency in milliseconds.
+Production upgrades included:
+- Async Postgres pooling (fast DB queries)
+- Redis caching (instant answers for repeat questions)
+- Shared HTTP client for Ollama (connection reuse)
+- Concurrency limiting (prevents overload)
+- Prompt + output limits (reduces tail latency)
+- Optional streaming endpoint (/api/chat/stream)
 """
 
-from typing import List, Optional, Dict, Any
+from __future__ import annotations
+
+from typing import Any, Dict, List, Optional
 import os
 import re
 from time import perf_counter
+import asyncio
 
-import httpx
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
+
+from app.api.config import (
+    RAG_TOP_K,
+    RAG_NUM_CANDIDATES,
+    MAX_CHUNK_CHARS,
+    MAX_CONTEXT_CHARS,
+    CACHE_TTL_RESPONSE,
+    CACHE_TTL_RETRIEVAL,
+    MAX_CONCURRENT_LLM,
+)
+from app.api.db import init_db_pool, close_db_pool, get_pool
+from app.api.cache import init_redis, close_redis, make_cache_key, cache_get_json, cache_set_json
+from app.api.ollama_client import init_ollama_client, close_ollama_client, generate, generate_stream
 
 from app.rag.retrieval import retrieve
 
 
-# --------------------------------------------------------------------------------------
-# Pydantic models (define the input and output shapes of our /api/chat endpoint)
-# --------------------------------------------------------------------------------------
+app = FastAPI(title="TMU Faculty of Arts Chatbot API", version="3.0-prod")
 
+# Concurrency limiter: prevents too many simultaneous LLM calls (stabilizes latency)
+_llm_semaphore = asyncio.Semaphore(MAX_CONCURRENT_LLM)
+
+
+# -----------------------------
+# Request / Response Models
+# -----------------------------
 
 class ChatRequest(BaseModel):
-    """
-    This represents the JSON body that a client sends to /api/chat.
-
-    Example:
-    {
-        "question": "How do I apply to the Faculty of Arts?"
-    }
-    """
-    question: str = Field(
-        ...,
-        max_length=2048,
-        description="The natural-language question asked by the user.",
-    )
+    question: str = Field(..., description="User's question for the TMU Arts chatbot.")
 
 
-class ChatSource(BaseModel):
-    """
-    One source used in the answer.
-
-    - id:      A small integer used in citations like [1], [2] inside the answer.
-    - url:     The page or document URL where the information came from.
-    - title:   Optional short title or section name for readability.
-    - section: Optional section heading from the original document.
-    """
+class SourceItem(BaseModel):
     id: int
     url: str
-    title: Optional[str] = None
+    title: str
     section: Optional[str] = None
 
 
+class TimingBreakdown(BaseModel):
+    cache_ms: int
+    retrieve_ms: int
+    prompt_ms: int
+    llm_ms: int
+    total_ms: int
+
+
 class ChatResponse(BaseModel):
-    """
-    This is what the API returns to the caller.
-
-    - answer:      The final answer text, ready to show to the user.
-    - sources:     A list of 2–6 sources that back up the answer.
-    - latency_ms:  Total time spent from receiving the request to producing
-                   the answer (in milliseconds).
-    """
     answer: str
-    sources: List[ChatSource]
+    sources: List[SourceItem]
     latency_ms: int
+    timings: TimingBreakdown
+    cached: bool
 
 
-# --------------------------------------------------------------------------------------
-# Global configuration (model + host)
-# --------------------------------------------------------------------------------------
+# -----------------------------
+# Startup / Shutdown
+# -----------------------------
 
-OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://ollama:11434")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.1:8b")
-
-# System instructions for the AI model.
-# These tell the model how to behave and what rules to follow.
-SYSTEM_INSTRUCTIONS = """
-You are a helpful assistant for the Toronto Metropolitan University (TMU) Faculty of Arts.
-
-Your job is to answer questions using ONLY the information provided in the context below.
-If the context does not contain enough information to answer the question, you MUST say
-that you do not know based on the available information.
-
-Important rules:
-- Do NOT make up policies, dates, or program details.
-- Do NOT invent URLs or email addresses.
-- When you use a piece of information from the context, refer to it using a citation
-  like [1], [2], etc., matching the source numbers provided in the context.
-"""
+@app.on_event("startup")
+async def _startup() -> None:
+    # Keep long-lived resources ready for fast performance.
+    await init_db_pool()
+    await init_redis()
+    await init_ollama_client()
 
 
-# --------------------------------------------------------------------------------------
-# PII redaction helpers
-# (Basic, intentionally conservative patterns)
-# --------------------------------------------------------------------------------------
+@app.on_event("shutdown")
+async def _shutdown() -> None:
+    await close_ollama_client()
+    await close_redis()
+    await close_db_pool()
 
-# Very simple patterns for obvious personal information.
-EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
-PHONE_RE = re.compile(
-    r"\b(?:\+?\d{1,2}[-.\s]?)?(?:\(?\d{3}\)?[-.\s]?){1,2}\d{4}\b"
-)
-# Naive 9-digit "student ID"-like pattern.
-STUDENT_ID_RE = re.compile(r"\b\d{9}\b")
+
+# -----------------------------
+# Helpers
+# -----------------------------
+
+def normalize_question(q: str) -> str:
+    q = q.strip().lower()
+    q = re.sub(r"\s+", " ", q)
+    return q
+
+
+def sanitize_question(q: str) -> str:
+    q = q.strip()
+    if not q:
+        raise HTTPException(status_code=400, detail="Question cannot be empty.")
+    if len(q) > 500:
+        raise HTTPException(status_code=400, detail="Question is too long (max 500 characters).")
+    return q
 
 
 def redact_pii(text: str) -> str:
-    """
-    Replace obvious personal information in the text with placeholders.
+    # Basic regex-based PII redaction for safety (not perfect, but helps).
+    email = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
+    phone = re.compile(r"(\+?\d{1,3}[\s\-]?)?(\(?\d{3}\)?[\s\-]?)\d{3}[\s\-]?\d{4}")
+    student_id = re.compile(r"\b\d{9}\b")  # simple 9-digit pattern
 
-    This is NOT a perfect or exhaustive solution. It is a basic safeguard for:
-    - Email addresses
-    - Phone numbers
-    - 9-digit ID-like numbers
-
-    Example:
-      "Contact me at alice@example.com" -> "Contact me at [REDACTED_EMAIL]"
-    """
-    if not text:
-        return text
-
-    text = EMAIL_RE.sub("[REDACTED_EMAIL]", text)
-    text = PHONE_RE.sub("[REDACTED_PHONE]", text)
-    text = STUDENT_ID_RE.sub("[REDACTED_ID]", text)
+    text = email.sub("[REDACTED_EMAIL]", text)
+    text = phone.sub("[REDACTED_PHONE]", text)
+    text = student_id.sub("[REDACTED_ID]", text)
     return text
 
 
-# --------------------------------------------------------------------------------------
-# Prompt construction
-# (turn retrieved chunks into a single string the model can work with)
-# --------------------------------------------------------------------------------------
-
-
-def build_prompt_and_sources(
-    question: str, chunks: List[Dict[str, Any]]
-) -> tuple[str, List[ChatSource]]:
+def build_prompt_and_sources(question: str, chunks: List[Dict[str, Any]]) -> tuple[str, List[SourceItem]]:
     """
-    Turn the user's question + retrieved database chunks into:
+    Build a strict prompt with numbered context passages.
 
-    1) A single prompt string that we will send to the AI model.
-    2) A list of ChatSource objects used to display citations and metadata.
-
-    High-level idea:
-    - Each distinct source_url is assigned an ID: [1], [2], [3], ...
-    - For each chunk, we include a context block like:
-        [1] Undergraduate Programs
-        <chunk text here>
-
-    - The model will then answer the question and refer to these blocks using
-      [1], [2], etc. in its answer.
+    Production principle:
+    - Smaller prompt => faster inference.
+    So we cap chunk text length and total context length.
     """
-    # Map each unique source URL to a numeric citation id.
-    source_url_to_id: Dict[str, int] = {}
-    id_to_source: Dict[int, ChatSource] = {}
-    next_id = 1
+    sources: List[SourceItem] = []
+    context_lines: List[str] = []
 
-    context_blocks: List[str] = []
+    total_chars = 0
+    for i, c in enumerate(chunks, start=1):
+        url = c.get("chunk_url") or c.get("source_url") or ""
+        section = c.get("section")
+        chunk_text = (c.get("chunk") or "").strip()
 
-    for c in chunks:
-        source_url = c.get("source_url") or c.get("chunk_url")
-        if not source_url:
-            # If we don't know where this chunk came from, skip it.
-            continue
+        # Per-chunk cap
+        if len(chunk_text) > MAX_CHUNK_CHARS:
+            chunk_text = chunk_text[:MAX_CHUNK_CHARS].rstrip() + "…"
 
-        # Assign a new citation ID if this source_url hasn't been seen yet.
-        if source_url not in source_url_to_id:
-            cid = next_id
-            source_url_to_id[source_url] = cid
-            next_id += 1
+        block = f"[{i}] URL: {url}\nSection: {section}\nText: {chunk_text}\n"
+        if total_chars + len(block) > MAX_CONTEXT_CHARS:
+            break
 
-            # Use the section as a human-friendly title if available.
-            section = c.get("section")
-            title = section or source_url
+        total_chars += len(block)
+        context_lines.append(block)
+        sources.append(SourceItem(id=i, url=url, title=url, section=section))
 
-            id_to_source[cid] = ChatSource(
-                id=cid,
-                url=source_url,
-                title=title,
-                section=section,
-            )
-        else:
-            cid = source_url_to_id[source_url]
+    system_instructions = (
+        "You are a helpful assistant for Toronto Metropolitan University's Faculty of Arts.\n"
+        "Answer the user's question using ONLY the context passages provided.\n"
+        "If the answer is not in the context, say you do not know.\n"
+        "Do not guess or invent details.\n"
+        "When you state a fact, cite it using [1], [2], etc.\n"
+        "Keep the answer concise and factual.\n"
+    )
 
-        # Build the text block for this chunk of context.
-        section = c.get("section") or ""
-        chunk_text = c.get("chunk") or ""
-        block = f"[{cid}] {section}\n{chunk_text}"
-        context_blocks.append(block)
-
-    # Combine all context blocks into one big "CONTEXT" section.
-    context_text = "\n\n".join(context_blocks)
-
-    # The final prompt that goes to the AI model.
-    prompt = f"""{SYSTEM_INSTRUCTIONS.strip()}
-
-CONTEXT:
-{context_text}
-
-USER QUESTION:
-{question}
-"""
-
-    # Sort sources by their numeric id so they appear in order [1], [2], ...
-    sources = [id_to_source[cid] for cid in sorted(id_to_source.keys())]
+    prompt = (
+        f"{system_instructions}\n"
+        f"USER QUESTION:\n{question}\n\n"
+        f"CONTEXT PASSAGES:\n{''.join(context_lines)}\n"
+        f"FINAL ANSWER (with citations):\n"
+    )
 
     return prompt, sources
 
 
-# --------------------------------------------------------------------------------------
-# Ollama client
-# (talks to the local LLM server to get an answer)
-# --------------------------------------------------------------------------------------
-
-
-async def call_ollama(prompt: str) -> str:
-    """
-    Send the prepared prompt to the local Ollama server and return the model's answer.
-
-    Technical notes:
-    - We use Ollama's /api/generate endpoint in non-streaming mode.
-    - The model name and host are configured via environment variables.
-    - If the Ollama server is down or returns an error, we raise HTTPException(502),
-      which surfaces as a "Bad Gateway" error to the client.
-    """
-    url = f"{OLLAMA_HOST.rstrip('/')}/api/generate"
-    payload = {
-        "model": OLLAMA_MODEL,
-        "prompt": prompt,
-        "stream": False,  # For milestone 3 we keep it simple: wait for the full answer.
-    }
-
-    try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            response = await client.post(url, json=payload)
-    except httpx.RequestError as exc:
-        # Network or connection error when talking to Ollama.
-        raise HTTPException(
-            status_code=502,
-            detail=f"Ollama request failed: {exc}",
-        )
-
-    if response.status_code != 200:
-        # Ollama responded but with an error.
-        raise HTTPException(
-            status_code=502,
-            detail=f"Ollama returned error {response.status_code}: {response.text}",
-        )
-
-    data = response.json()
-    # In /api/generate, the main text is in the "response" field.
-    answer = data.get("response", "")
-    if not answer:
-        raise HTTPException(
-            status_code=502,
-            detail="Ollama returned an empty response.",
-        )
-
-    return answer
-
-
-# --------------------------------------------------------------------------------------
-# FastAPI application and routes
-# --------------------------------------------------------------------------------------
-
-app = FastAPI(
-    title="TMU Faculty of Arts Chatbot API",
-    description="Backend service for answering questions about TMU's Faculty of Arts.",
-    version="0.3.0",  # milestone 3
-)
-
+# -----------------------------
+# Endpoints
+# -----------------------------
 
 @app.get("/healthz")
-async def health_check() -> dict:
-    """
-    Simple health check endpoint.
-
-    This allows DevOps / monitoring systems (and you) to verify that:
-    - The FastAPI server is running.
-    - The container is reachable.
-
-    It does NOT check the database or LLM; it's deliberately lightweight.
-    """
+async def healthz() -> Dict[str, str]:
     return {"status": "ok"}
 
 
 @app.post("/api/chat", response_model=ChatResponse)
-async def chat_endpoint(request: ChatRequest) -> ChatResponse:
+async def chat(req: ChatRequest) -> ChatResponse:
+    start_total = perf_counter()
+
+    q = sanitize_question(req.question)
+    nq = normalize_question(q)
+
+    # ---- Cache lookup (full response cache) ----
+    start_cache = perf_counter()
+    resp_key = make_cache_key("resp", nq)
+    cached_resp = await cache_get_json(resp_key)
+    cache_ms = int((perf_counter() - start_cache) * 1000)
+
+    if cached_resp:
+        # Return cached response instantly
+        cached_resp["timings"]["cache_ms"] = cache_ms
+        cached_resp["timings"]["total_ms"] = int((perf_counter() - start_total) * 1000)
+        cached_resp["latency_ms"] = cached_resp["timings"]["total_ms"]
+        cached_resp["cached"] = True
+        return ChatResponse(**cached_resp)
+
+    # ---- Retrieval (cache retrieval separately) ----
+    pool = get_pool()
+    start_retrieve = perf_counter()
+
+    ret_key = make_cache_key("ret", nq)
+    cached_ret = await cache_get_json(ret_key)
+
+    if cached_ret and "chunks" in cached_ret:
+        chunks = cached_ret["chunks"]
+    else:
+        chunks = await retrieve(
+            pool=pool,
+            query=q,
+            k=RAG_TOP_K,
+            num_candidates=RAG_NUM_CANDIDATES,
+        )
+        await cache_set_json(ret_key, {"chunks": chunks}, CACHE_TTL_RETRIEVAL)
+
+    retrieve_ms = int((perf_counter() - start_retrieve) * 1000)
+
+    # ---- Prompt building ----
+    start_prompt = perf_counter()
+    prompt, sources = build_prompt_and_sources(q, chunks)
+    prompt_ms = int((perf_counter() - start_prompt) * 1000)
+
+    # ---- LLM call (rate-limited) ----
+    start_llm = perf_counter()
+    async with _llm_semaphore:
+        try:
+            raw = await generate(prompt)
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=f"Ollama request failed: {e}")
+
+    llm_ms = int((perf_counter() - start_llm) * 1000)
+
+    answer = redact_pii(raw).strip()
+    total_ms = int((perf_counter() - start_total) * 1000)
+
+    payload = {
+        "answer": answer,
+        "sources": [s.dict() for s in sources],
+        "latency_ms": total_ms,
+        "timings": {
+            "cache_ms": cache_ms,
+            "retrieve_ms": retrieve_ms,
+            "prompt_ms": prompt_ms,
+            "llm_ms": llm_ms,
+            "total_ms": total_ms,
+        },
+        "cached": False,
+    }
+
+    # Cache the final response
+    await cache_set_json(resp_key, payload, CACHE_TTL_RESPONSE)
+
+    return ChatResponse(**payload)
+
+
+@app.post("/api/chat/stream")
+async def chat_stream(req: ChatRequest):
     """
-    Main chat endpoint for milestone 3.
-
-    High-level flow:
-    1) Clean and validate the incoming question.
-    2) Use our retrieval pipeline to fetch relevant context from the TMU database.
-    3) Build a strict prompt that includes:
-         - system instructions,
-         - the retrieved context chunks,
-         - and the original user question.
-    4) Send the prompt to the local LLM (Ollama) and get an answer.
-    5) Redact obvious personal information from the answer.
-    6) Return the answer, the list of sources, and the total latency.
+    Streaming endpoint:
+    - begins returning text quickly
+    - improves perceived latency (important for production UX)
+    - still uses retrieval and prompt rules
     """
-    start_time = perf_counter()
+    q = sanitize_question(req.question)
+    nq = normalize_question(q)
 
-    # 1) Sanitize input
-    question = request.question.strip()
-    if not question:
-        raise HTTPException(status_code=400, detail="Question must not be empty.")
+    # If we already have a cached final response, stream it instantly
+    resp_key = make_cache_key("resp", nq)
+    cached_resp = await cache_get_json(resp_key)
+    if cached_resp and "answer" in cached_resp:
+        async def _cached_iter():
+            yield cached_resp["answer"]
+        return StreamingResponse(_cached_iter(), media_type="text/plain")
 
-    # 2) Retrieve top chunks from the RAG database
-    #    - k=6: we want up to 6 chunks in the final answer
-    #    - num_candidates=30: we let the reranker choose the best among more options
-    chunks = retrieve(question, k=6, num_candidates=30)
+    pool = get_pool()
+    chunks = await retrieve(pool=pool, query=q, k=RAG_TOP_K, num_candidates=RAG_NUM_CANDIDATES)
+    prompt, _sources = build_prompt_and_sources(q, chunks)
 
-    # 3) Build prompt string and source metadata (for citations)
-    prompt, sources = build_prompt_and_sources(question, chunks)
+    async def _iter():
+        async with _llm_semaphore:
+            try:
+                async for piece in generate_stream(prompt):
+                    yield piece
+            except Exception as e:
+                yield f"\n\n[ERROR] Ollama request failed: {e}"
 
-    # 4) Call the local LLM via Ollama
-    raw_answer = await call_ollama(prompt)
-
-    # 5) Basic PII redaction
-    cleaned_answer = redact_pii(raw_answer)
-
-    # 6) Measure total latency
-    latency_ms = int((perf_counter() - start_time) * 1000)
-
-    return ChatResponse(
-        answer=cleaned_answer,
-        sources=sources,
-        latency_ms=latency_ms,
-    )
+    return StreamingResponse(_iter(), media_type="text/plain")

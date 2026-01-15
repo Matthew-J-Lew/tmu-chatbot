@@ -1,13 +1,6 @@
-# Docker version
-# version: "3.9"
-
-# Each service is a container running a piece of software
 services:
-
-  # pg container, posgres with pgvector extension for the rag database
   pg:
     image: pgvector/pgvector:pg16
-    # basic db stuff for now, maybe change later
     environment:
       POSTGRES_DB: ragdb
       POSTGRES_USER: rag
@@ -22,39 +15,84 @@ services:
       timeout: 3s
       retries: 20
 
-  # Ollama container, runs the LLM server (maybe switch to openai later)
   ollama:
     image: ollama/ollama:latest
     ports: ["11434:11434"]
     volumes:
       - ollama:/root/.ollama
+    environment:
+      # Keep the model loaded longer to reduce cold-start latency
+      OLLAMA_KEEP_ALIVE: 30m
     healthcheck:
-      test: ["CMD", "ollama", "list"]   # <- use the built-in CLI instead of curl
+      test: ["CMD", "ollama", "list"]
       interval: 10s
       timeout: 5s
       retries: 30
       start_period: 60s
 
-  # API container, will connect to the db and LLM later on 
+  # NEW: Redis for production caching
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
   api:
     build:
       context: .
       dockerfile: app/api/Dockerfile
     environment:
+      # DB
       PGHOST: pg
       PGUSER: rag
       PGPASSWORD: rag
       PGDATABASE: ragdb
+      PGPORT: 5432
+
+      # Ollama
       OLLAMA_HOST: http://ollama:11434
+      OLLAMA_MODEL: llama3.1:8b
+
+      # Redis
+      REDIS_URL: redis://redis:6379/0
+
+      # Production tuning knobs (adjust as needed)
+      RAG_TOP_K: 4
+      RAG_NUM_CANDIDATES: 12
+      RERANK_ENABLED: "true"
+
+      # Prompt limits
+      MAX_CHUNK_CHARS: 1100
+      MAX_CONTEXT_CHARS: 5000
+
+      # Generation limits
+      OLLAMA_NUM_PREDICT: 220
+      OLLAMA_TEMPERATURE: 0.2
+      OLLAMA_TOP_P: 0.9
+
+      # Reliability
+      OLLAMA_TIMEOUT_SECONDS: 90
+      OLLAMA_MAX_RETRIES: 2
+
+      # Concurrency
+      MAX_CONCURRENT_LLM: 2
+
+      # Cache TTLs (seconds)
+      CACHE_TTL_RESPONSE: 21600     # 6 hours
+      CACHE_TTL_RETRIEVAL: 21600    # 6 hours
     depends_on:
       pg:
         condition: service_healthy
       ollama:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     ports: ["8000:8000"]
 
-
-  # Ingestion container for our data pipeline
   ingestion:
     build: ./app/ingestion
     profiles: ["ingest"]
@@ -62,7 +100,6 @@ services:
       pg:
         condition: service_healthy
 
-  # Adding adminer for viewing database purposes
   adminer:
     image: adminer:latest
     restart: always
@@ -70,7 +107,6 @@ services:
       - 8080:8080
     depends_on:
       - pg
-
 
 volumes:
   pgdata:

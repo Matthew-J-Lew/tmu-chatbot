@@ -1,0 +1,13 @@
+once you run docker compose up -d --build and the containers are running:
+
+docker compose run --rm api bash
+python -c "from app.rag.debug import debug_retrieve; debug_retrieve('How do i apply to the faculty of arts?', k=6, num_candidates=30)"
+
+
+To test a question: 
+(Invoke-WebRequest `
+  -Uri "http://localhost:8000/api/chat" `
+  -Method POST `
+  -Headers @{ "Content-Type" = "application/json" } `
+  -Body '{"question": "How do i apply to the faculty of arts?"}' `
+).Content

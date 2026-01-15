@@ -235,3 +235,13 @@ Hons) Journey through the past to understand the events that shape our world tod
 ================================================================================
 
 root@859fd84ac778:/app# 
+
+
+PS C:\Users\Matthew\Desktop\IDEs\VSCode Projects\TMU-Chatbot> (Invoke-WebRequest `
+>>   -Uri "http://localhost:8000/api/chat" `
+>>   -Method POST `
+>>   -Headers @{ "Content-Type" = "application/json" } `
+>>   -Body '{"question": "How do i apply to the faculty of arts?"}' `
+>> ).Content
+{"answer":"According to [2], Applications to TMU are submitted through the Ontario Universitiesâ Application Centre (OUAC). Once you've submitted your application, you'll receive an acknowledgement email and a TMU S
+tudent Number. Then, you'll need to activate your online identity, submit required documents, and more. You can explore our application process for a full explanation of all the steps required.","sources":[{"id":1,"url":"https://www.torontomu.ca/arts/undergraduate/programs/","title":"https://www.torontomu.ca/arts/undergraduate/programs/","section":null},{"id":2,"url":"https://www.torontomu.ca/arts/","title":"https://www.torontomu.ca/arts/","section":null},{"id":3,"url":"https://www.torontomu.ca/content/dam/graduate/Calendar/YSGPS-Full-Calendar-25-26.pdf","title":"https://www.torontomu.ca/content/dam/graduate/Calendar/YSGPS-Full-Calendar-25-26.pdf","section":null}],"latency_ms":15156}
