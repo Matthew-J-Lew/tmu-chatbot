@@ -55,7 +55,7 @@ services:
 
       # Ollama
       OLLAMA_HOST: http://ollama:11434
-      OLLAMA_MODEL: llama3.1:8b
+      OLLAMA_MODEL: llama3.2:3b
 
       # Redis
       REDIS_URL: redis://redis:6379/0
@@ -66,12 +66,12 @@ services:
       RERANK_ENABLED: "true"
 
       # Prompt limits
-      MAX_CHUNK_CHARS: 1100
-      MAX_CONTEXT_CHARS: 5000
+      MAX_CHUNK_CHARS: 800
+      MAX_CONTEXT_CHARS: 3200
 
       # Generation limits
-      OLLAMA_NUM_PREDICT: 220
-      OLLAMA_TEMPERATURE: 0.2
+      OLLAMA_NUM_PREDICT: 120
+      OLLAMA_TEMPERATURE: 0.1
       OLLAMA_TOP_P: 0.9
 
       # Reliability

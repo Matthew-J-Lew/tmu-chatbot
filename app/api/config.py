@@ -46,12 +46,12 @@ RAG_NUM_CANDIDATES = _get_int("RAG_NUM_CANDIDATES", 12)
 RERANK_ENABLED = _get_bool("RERANK_ENABLED", True)
 
 # ---- Prompt limits ----
-MAX_CHUNK_CHARS = _get_int("MAX_CHUNK_CHARS", 1100)
-MAX_CONTEXT_CHARS = _get_int("MAX_CONTEXT_CHARS", 5000)
+MAX_CHUNK_CHARS = _get_int("MAX_CHUNK_CHARS", 800)
+MAX_CONTEXT_CHARS = _get_int("MAX_CONTEXT_CHARS", 3200)
 
 # ---- Ollama / LLM ----
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://ollama:11434")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.1:8b")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2:3b")
 OLLAMA_TIMEOUT_SECONDS = _get_int("OLLAMA_TIMEOUT_SECONDS", 90)
 OLLAMA_MAX_RETRIES = _get_int("OLLAMA_MAX_RETRIES", 2)
 
