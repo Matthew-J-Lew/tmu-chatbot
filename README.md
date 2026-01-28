@@ -77,6 +77,33 @@ TESTING:
    python -c "from app.rag.debug import debug_retrieve; debug_retrieve('INSERT QUESTION HERE', k=6, num_candidates=30)"
    note that k and num_candidates can be tweaked
 2. Milestone 2 is complete when we can call retrieve(query, k) and it gives us the best pages/chunks for the question
+3. 
+python - << 'EOF'
+import asyncio, os, asyncpg
+from app.rag.retrieval import retrieve
+
+async def main():
+    pool = await asyncpg.create_pool(
+        dsn=os.getenv("DATABASE_URL"),
+        min_size=1,
+        max_size=5,
+    )
+    try:
+        results = await retrieve(
+            pool,
+            "What undergraduate programs are offered at the faculty of arts?",
+            k=6,
+            num_candidates=30,
+        )
+        for i, r in enumerate(results, 1):
+            print(f"\n[{i}] {r['source_url']}")
+            print(r['chunk'][:30000])
+    finally:
+        await pool.close()
+
+asyncio.run(main())
+EOF
+
 
 MILESTONE 3 LLM CALL (MVP of the whole system)
 1. Ensure all containers are running:
@@ -93,3 +120,13 @@ MILESTONE 3 LLM CALL (MVP of the whole system)
 ).Content
 4. If the OLLAMA LLM didn't get installed properly, use:
 docker compose exec ollama ollama pull llama3.1:8b
+
+MILESTONE 3.5 PULLING DIFFERENT LLMS:
+1. Pull the model
+- docker compose exec ollama ollama pull <model_name>
+2. Verify it's installed
+- docker compose exec ollama ollama list
+3. in docker-compose.yml change OLLAMA_MODEL:<model_name>
+4. restart the container
+- docker compose up -d --build (optional: api)
+

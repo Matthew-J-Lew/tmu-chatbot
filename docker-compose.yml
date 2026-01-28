@@ -55,7 +55,7 @@ services:
 
       # Ollama
       OLLAMA_HOST: http://ollama:11434
-      OLLAMA_MODEL: llama3.2:3b
+      OLLAMA_MODEL: qwen2.5:1.5b
 
       # Redis
       REDIS_URL: redis://redis:6379/0
