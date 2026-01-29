@@ -66,8 +66,8 @@ services:
       RERANK_ENABLED: "true"
 
       # Prompt limits
-      MAX_CHUNK_CHARS: 800
-      MAX_CONTEXT_CHARS: 3200
+      MAX_CHUNK_CHARS: 1600
+      MAX_CONTEXT_CHARS: 8000
 
       # Generation limits
       OLLAMA_NUM_PREDICT: 120
@@ -82,8 +82,8 @@ services:
       MAX_CONCURRENT_LLM: 2
 
       # Cache TTLs (seconds)
-      CACHE_TTL_RESPONSE: 21600     # 6 hours
-      CACHE_TTL_RETRIEVAL: 21600    # 6 hours
+      CACHE_TTL_RESPONSE: 1
+      CACHE_TTL_RETRIEVAL: 1
     depends_on:
       pg:
         condition: service_healthy

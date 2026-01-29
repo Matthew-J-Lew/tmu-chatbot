@@ -1,23 +1,11 @@
 # app/rag/debug.py
-"""
-Debug / evaluation helpers for the retrieval pipeline.
-
-Usage example (inside the API container or your dev env):
-
-    from app.rag.debug import debug_retrieve
-    debug_retrieve("How do I apply to the Faculty of Arts?", k=6)
-
-This will:
-  - run the full pipeline (embed -> hybrid search -> rerank)
-  - print total latency
-  - print previews of the top-k chunks and their scores
-"""
-
 from __future__ import annotations
 
+import asyncio
 import time
-from typing import Optional
+from typing import Any, Dict, List
 
+from app.api.db import init_db_pool, close_db_pool, get_pool
 from .retrieval import retrieve
 
 
@@ -27,19 +15,20 @@ def debug_retrieve(
     num_candidates: int = 30,
     show_chunk_chars: int = 400,
 ) -> None:
-    """
-    Run the full retrieval pipeline for a single query and print details.
+    asyncio.run(_debug_retrieve_async(query, k, num_candidates, show_chunk_chars))
 
-    Args:
-        query: The user's question.
-        k: Final number of chunks to return after reranking.
-        num_candidates: Number of candidates to pull from Postgres
-                        before reranking.
-        show_chunk_chars: Number of characters to show from each chunk
-                          as a preview in the console.
-    """
+
+async def _debug_retrieve_async(
+    query: str,
+    k: int,
+    num_candidates: int,
+    show_chunk_chars: int,
+) -> None:
+    await init_db_pool()
+    pool = get_pool()
+
     t0 = time.time()
-    results = retrieve(query, k=k, num_candidates=num_candidates)
+    results = await retrieve(pool=pool, query=query, k=k, num_candidates=num_candidates)
     t1 = time.time()
 
     print("=" * 80)
@@ -63,4 +52,6 @@ def debug_retrieve(
             preview = preview[: show_chunk_chars - 3] + "..."
         print("Preview:")
         print(preview)
+
     print("\n" + "=" * 80 + "\n")
+    await close_db_pool()

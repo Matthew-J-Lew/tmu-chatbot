@@ -52,6 +52,9 @@ async def cache_get_json(key: str) -> Optional[dict[str, Any]]:
         return None
 
 
-async def cache_set_json(key: str, obj: dict[str, Any], ttl_seconds: int) -> None:
+async def cache_set_json(key: str, obj: dict, ttl_seconds: int):
+    if not ttl_seconds or ttl_seconds <= 0:
+        return
     r = get_redis()
-    await r.set(key, json.dumps(obj), ex=ttl_seconds)
+    await r.set(key, json.dumps(obj), ex=int(ttl_seconds))
+

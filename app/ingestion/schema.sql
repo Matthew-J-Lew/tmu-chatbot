@@ -214,10 +214,10 @@ AS $$
     s.url  AS source_url,
     c.section,
     c.chunk,
-    (1 - (c.embedding <#> query_embedding))                         AS vector_score, -- cosine sim if vectors are normalized
+    (1 - (c.embedding <=> query_embedding))                         AS vector_score, -- cosine similarity via 1 - cosine_distance
     ts_rank(c.ts, plainto_tsquery('english', query_text))            AS text_score,
-    (weight_vector * (1 - (c.embedding <#> query_embedding))
-     + weight_text * ts_rank(c.ts, plainto_tsquery('english', query_text))) AS hybrid_score
+    (weight_vector * (1 - (c.embedding <=> query_embedding))
+    + weight_text * ts_rank(c.ts, plainto_tsquery('english', query_text))) AS hybrid_score
   FROM chunks c
   JOIN sources s ON s.id = c.source_id
   ORDER BY hybrid_score DESC

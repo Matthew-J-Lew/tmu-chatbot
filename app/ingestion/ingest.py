@@ -25,8 +25,9 @@ PGDATABASE = os.getenv("PGDATABASE", "ragdb")
 
 # 384-dim model to match schema VECTOR(384)
 EMBED_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
-CHUNK_TOKEN_SIZE = 500
-CHUNK_TOKEN_OVERLAP = 80
+# These are the tuning knobs for our information chunks, balancing size vs context
+CHUNK_TOKEN_SIZE = 250
+CHUNK_TOKEN_OVERLAP = 50
 USER_AGENT = "TMU-FOA-RAG-Ingest/0.1 (+https://www.torontomu.ca/arts/)"
 
 model = SentenceTransformer(EMBED_MODEL_NAME)

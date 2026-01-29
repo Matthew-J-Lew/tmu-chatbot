@@ -74,35 +74,10 @@ TESTING:
 1. Open a shell inside the API container
    docker compose run --rm api bash
    - You can then ask questions with:
-   python -c "from app.rag.debug import debug_retrieve; debug_retrieve('INSERT QUESTION HERE', k=6, num_candidates=30)"
+   docker compose run --rm api python -m app.tools.inspect_prompt "QUESTION"
+
    note that k and num_candidates can be tweaked
 2. Milestone 2 is complete when we can call retrieve(query, k) and it gives us the best pages/chunks for the question
-3. 
-python - << 'EOF'
-import asyncio, os, asyncpg
-from app.rag.retrieval import retrieve
-
-async def main():
-    pool = await asyncpg.create_pool(
-        dsn=os.getenv("DATABASE_URL"),
-        min_size=1,
-        max_size=5,
-    )
-    try:
-        results = await retrieve(
-            pool,
-            "What undergraduate programs are offered at the faculty of arts?",
-            k=6,
-            num_candidates=30,
-        )
-        for i, r in enumerate(results, 1):
-            print(f"\n[{i}] {r['source_url']}")
-            print(r['chunk'][:30000])
-    finally:
-        await pool.close()
-
-asyncio.run(main())
-EOF
 
 
 MILESTONE 3 LLM CALL (MVP of the whole system)
@@ -129,4 +104,19 @@ MILESTONE 3.5 PULLING DIFFERENT LLMS:
 3. in docker-compose.yml change OLLAMA_MODEL:<model_name>
 4. restart the container
 - docker compose up -d --build (optional: api)
+
+IMPORTANT TUNING KNOBS:
+app/ingestion/ingest.py
+CHUNK_TOKEN_SIZE
+CHUNK_TOKEN_OVERLAP
+
+TESTING: This should print the full exact prompt sent to LLM as well as retrieved context:
+docker compose run --rm api python -m app.tools.inspect_prompt "Can you list all the graduate and undergraduate programs?"
+
+This will just show important chunks:
+docker compose run --rm api python -m app.tools.inspect_prompt "QUESTION"
+
+RUNNING FULL PIPELINE:
+
+Invoke-RestMethod -Method Post -Uri "http://localhost:8000/api/chat" -ContentType "application/json" -Body (@{question="Can you list all the graduate and undergraduate programs?"} | ConvertTo-Json) | ConvertTo-Json -Depth 10
 
