@@ -30,7 +30,7 @@ services:
       retries: 30
       start_period: 60s
 
-  # NEW: Redis for production caching
+  # Redis for production caching
   redis:
     image: redis:7-alpine
     ports: ["6379:6379"]
@@ -60,7 +60,7 @@ services:
       # Redis
       REDIS_URL: redis://redis:6379/0
 
-      # Production tuning knobs (adjust as needed)
+      # Production tuning knobs
       RAG_TOP_K: 4
       RAG_NUM_CANDIDATES: 12
       RERANK_ENABLED: "true"
@@ -70,7 +70,7 @@ services:
       MAX_CONTEXT_CHARS: 8000
 
       # Generation limits
-      OLLAMA_NUM_PREDICT: 120
+      OLLAMA_NUM_PREDICT: 512
       OLLAMA_TEMPERATURE: 0.1
       OLLAMA_TOP_P: 0.9
 
@@ -93,9 +93,59 @@ services:
         condition: service_healthy
     ports: ["8000:8000"]
 
+  # One-shot crawler that discovers URLs and writes approved targets to Postgres
+  crawler:
+    build:
+      context: .
+      dockerfile: app/crawler/Dockerfile
+    profiles: ["crawl"]
+    environment:
+      PGHOST: pg
+      PGUSER: rag
+      PGPASSWORD: rag
+      PGDATABASE: ragdb
+      CRAWL_PROFILE: arts
+      # Politeness: requests per second per host
+      CRAWL_RPS: 1.0
+      CRAWL_ENABLE_SITEMAPS: "true"
+    depends_on:
+      pg:
+        condition: service_healthy
+
+  # One-shot ingestion runner; set INGEST_MODE=db to ingest from crawl_targets
   ingestion:
-    build: ./app/ingestion
+    build:
+      context: .
+      dockerfile: app/ingestion/Dockerfile
     profiles: ["ingest"]
+    environment:
+      PGHOST: pg
+      PGUSER: rag
+      PGPASSWORD: rag
+      PGDATABASE: ragdb
+      INGEST_MODE: db
+      CRAWL_PROFILE: arts
+      INGEST_LIMIT: 200
+    depends_on:
+      pg:
+        condition: service_healthy
+
+  # Optional: a simple "scheduler" container that runs crawl+ingest on an interval
+  pipeline:
+    build:
+      context: .
+      dockerfile: app/pipeline/Dockerfile
+    profiles: ["pipeline"]
+    environment:
+      PGHOST: pg
+      PGUSER: rag
+      PGPASSWORD: rag
+      PGDATABASE: ragdb
+      PIPELINE_PROFILES: arts
+      PIPELINE_INTERVAL_SECONDS: 21600 # 6h
+      CRAWL_RPS: 1.0
+      CRAWL_ENABLE_SITEMAPS: "true"
+      INGEST_LIMIT: 200
     depends_on:
       pg:
         condition: service_healthy

@@ -111,7 +111,7 @@ CHUNK_TOKEN_SIZE
 CHUNK_TOKEN_OVERLAP
 
 TESTING: This should print the full exact prompt sent to LLM as well as retrieved context:
-docker compose run --rm api python -m app.tools.inspect_prompt "Can you list all the graduate and undergraduate programs?"
+docker compose run --rm api python -m app.tools.inspect_prompt "Can you list all the undergraduate and undergraduate programs?"
 
 This will just show important chunks:
 docker compose run --rm api python -m app.tools.inspect_prompt "QUESTION"
@@ -120,3 +120,23 @@ RUNNING FULL PIPELINE:
 
 Invoke-RestMethod -Method Post -Uri "http://localhost:8000/api/chat" -ContentType "application/json" -Body (@{question="Can you list all the graduate and undergraduate programs?"} | ConvertTo-Json) | ConvertTo-Json -Depth 10
 
+
+BONUS MILESTONE: WEB SPIDER/CRAWLING  + DATABASE INGESTION 
+1. We give the spider a starting page/seed (in this case https://www.torontomu.ca/arts/)
+2. It downloads the page and looks for links connected to it
+3. Checks the collected links against rules
+   - allowed website domains
+   - allowed paths
+   - allowed patterns + regex
+4. Save results into a database, approved, blocked, failed
+5. Process repeats for approved pages
+Commands:
+1. start services:
+   - docker composen up -d --build pg redis ollama api
+2. Run crawler
+   - docker compose --profile crawl run -rm --build crawler
+3. Run ingestion
+docker compose --profile ingest run --rm --build ingestion `
+  python -m app.ingestion.ingest --mode db --profile arts --limit 200
+
+Change the limit as you see fit

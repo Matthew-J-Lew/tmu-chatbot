@@ -1,0 +1,27 @@
+# Crawl profiles define discovery scope + policy rules.
+# Add more profiles later (e.g., "science", "engineering") without changing crawler code.
+
+profiles:
+  arts:
+    seeds:
+      - https://www.torontomu.ca/arts/
+    allowed_domains:
+      - www.torontomu.ca
+      - torontomu.ca
+    allowed_path_prefixes:
+      - /arts
+      - /arts/
+    deny_path_regex:
+      - ^/arts/news
+      - ^/arts/events?
+      - ^/arts/calendar
+      - ^/arts/social
+      - ^/arts/future-students/events
+      - /search
+      - /site-map
+      - /sitemap
+    strip_query: true
+    include_pdfs: true
+    max_pages: 8000
+    max_depth: 6
+
