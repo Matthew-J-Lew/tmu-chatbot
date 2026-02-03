@@ -1,142 +1,329 @@
-MILESTONE 0 SETUP:
-1. ssh/login in to a TMU virtual machine/new general machine
-2. install docker and docker compose plugin
-   sudo apt update
-   sudo apt install -y docker.io docker-compose-plugin
-   sudo usermod -aG docker $USER
-   newgrp docker
-3. clone the repository
-   cd /opt
-   sudo git clone https://github.com/Matthew-J-Lew/tmu-chatbot.git
-   cd into the project file
-4. Retrieve environment variables
-5. build and start containers
-   docker compose up -d --build
-6. verify that containers are running
-   docker ps
-   you should see pg, ollama, and api listed and healthy
-7. pull the model
-   docker compose exec ollama ollama pull llama3.1:8b
-8. confirm model is installed
-   docker compose exec ollama ollama list
-9. milestone 0 is complete when docker ps shows postgres, ollama, and api all healthy and responding
+# TMU Faculty of Arts Chatbot
 
-MILESTONE 1 INGESTION PIPELINE:
+A small, Docker-first **Retrieval-Augmented Generation (RAG)** stack for answering questions about **Toronto Metropolitan University (TMU) Faculty of Arts** content using:
 
-1. ensure postgres and ollama containers are running and healthy
-   docker ps
-2. verify schema.sql is mounted correctly in /app/ingestion and tables exist
-   docker compose exec pg psql -U rag -d ragdb -c "\dt"
-3. confirm the schema contains the sources and chunks tables
-   docker compose exec pg psql -U rag -d ragdb -c "\d+ sources"
-   docker compose exec pg psql -U rag -d ragdb -c "\d+ chunks"
-4. build the ingestion image
-   docker compose build ingestion
-5. run the ingestion pipeline (reads from /app/allowlist.yaml)
-   docker compose --profile ingest up --no-deps ingestion
-6. verify chunk count after ingestion
-   docker compose exec pg psql -U rag -d ragdb -c "SELECT COUNT(*) FROM chunks;"
-   the count should be 50+ after ingesting 3–5 official TMU pages
-7. optionally view sample data
-   docker compose exec pg psql -U rag -d ragdb -c "SELECT * FROM v_chunks_basic LIMIT 5;"
-8. milestone 1 is complete when we can ingest chunks from all the sources in the allowlist.yaml
+- **Postgres + pgvector** for storage and hybrid retrieval (keyword + embeddings)
+- **A crawler + ingestion pipeline** to discover/ingest official pages (HTML/PDF/CSV/XLSX)
+- **A FastAPI service** that retrieves context, optionally reranks, and calls a local LLM
+- **Redis** for response/retrieval caching
 
-MILESTONE 1.5 OPTIONAL VISUALIZATION:
+---
 
-1. to view the database in a GUI, use Adminer or pgAdmin
-2. for Adminer, add this service to docker-compose.yml
-   adminer:
-   image: adminer:latest
-   restart: always
-   ports:
-   - 8080:8080
-   depends_on:
-   - pg
-3. start it with docker compose up -d adminer
-4. access Adminer at [http://localhost:8080](http://localhost:8080)
-   system: PostgreSQL
-   server: pg
-   username: rag
-   password: rag
-   database: ragdb
-5. you can browse, filter, and export data through the web interface
-6. milestone 1.5 is complete when you can visualize the chunks table and confirm embeddings exist
+## Contents
 
-MILESTONE 2 RETRIEVAL AND RERANKING (RAG SYSTEM)
-1. Build the API image to pick up requirements + code changes
-   docker compose build api
-2. Start postgres, Ollama, and API
-   docker compose up -d pg ollama api
-3. Verify containers
-   docker ps
-   confirm that pg, ollama, and api are running
-TESTING:
-1. Open a shell inside the API container
-   docker compose run --rm api bash
-   - You can then ask questions with:
-   docker compose run --rm api python -m app.tools.inspect_prompt "QUESTION"
+- [Architecture](#architecture)
+- [Prerequisites](#prerequisites)
+- [Quickstart](#quickstart)
+- [Ingesting data](#ingesting-data)
+- [Calling the API](#calling-the-api)
+- [Debug / inspection tools](#debug--inspection-tools)
+- [Tuning knobs](#tuning-knobs)
+- [Troubleshooting](#troubleshooting)
+- [Project layout](#project-layout)
 
-   note that k and num_candidates can be tweaked
-2. Milestone 2 is complete when we can call retrieve(query, k) and it gives us the best pages/chunks for the question
+---
 
+## Architecture
 
-MILESTONE 3 LLM CALL (MVP of the whole system)
-1. Ensure all containers are running:
-- docker compose up -d --build
-- docker ps
-2. Test the health of the endpoint
-- curl http://localhost:8000/healthz
-- It should return {"status":"ok"}
-3. Test the chat endpoint (this is powershell syntax):
-- (Invoke-WebRequest -Uri "http://localhost:8000/api/chat" `
-  -Method POST `
-  -Headers @{ "Content-Type" = "application/json" } `
-  -Body '{"question": "YOUR QUESTION GOES HERE"}' `
-).Content
-4. If the OLLAMA LLM didn't get installed properly, use:
-docker compose exec ollama ollama pull llama3.1:8b
+High-level flow:
 
-MILESTONE 3.5 PULLING DIFFERENT LLMS:
-1. Pull the model
-- docker compose exec ollama ollama pull <model_name>
-2. Verify it's installed
-- docker compose exec ollama ollama list
-3. in docker-compose.yml change OLLAMA_MODEL:<model_name>
-4. restart the container
-- docker compose up -d --build (optional: api)
+1. **Crawl**: discover in-scope URLs and store them in Postgres (`crawl_targets`)
+2. **Ingest**: fetch approved pages/files → extract text → chunk → embed → store in Postgres (`sources`, `chunks`)
+3. **Ask a question**: embed query → hybrid search in Postgres → (optional) rerank → build prompt → call Ollama → return answer + citations
 
-IMPORTANT TUNING KNOBS:
-app/ingestion/ingest.py
-CHUNK_TOKEN_SIZE
-CHUNK_TOKEN_OVERLAP
+```
+User -> FastAPI (/api/chat)
+          |-> retrieve (pgvector + full-text) -> candidates
+          |-> optional rerank (cross-encoder)
+          |-> prompt builder (strict "use only context")
+          |-> LLM generate
+          `-> JSON: answer + sources + timings (+ caching via Redis)
+```
 
-TESTING: This should print the full exact prompt sent to LLM as well as retrieved context:
-docker compose run --rm api python -m app.tools.inspect_prompt "Can you list all the undergraduate and undergraduate programs?"
+---
 
-This will just show important chunks:
-docker compose run --rm api python -m app.tools.inspect_prompt "QUESTION"
+## Prerequisites
 
-RUNNING FULL PIPELINE:
+### Required
+- **Docker Desktop** (Windows/Mac) or **Docker Engine** (Linux)
+- **Docker Compose** (the modern `docker compose` command)
 
-Invoke-RestMethod -Method Post -Uri "http://localhost:8000/api/chat" -ContentType "application/json" -Body (@{question="Can you list all the graduate and undergraduate programs?"} | ConvertTo-Json) | ConvertTo-Json -Depth 10
+### Recommended
+- 8–16GB RAM (LLMs can be memory-hungry depending on the model)
+- More CPU cores helps ingestion + reranking latency
 
+---
 
-BONUS MILESTONE: WEB SPIDER/CRAWLING  + DATABASE INGESTION 
-1. We give the spider a starting page/seed (in this case https://www.torontomu.ca/arts/)
-2. It downloads the page and looks for links connected to it
-3. Checks the collected links against rules
-   - allowed website domains
-   - allowed paths
-   - allowed patterns + regex
-4. Save results into a database, approved, blocked, failed
-5. Process repeats for approved pages
-Commands:
-1. start services:
-   - docker composen up -d --build pg redis ollama api
-2. Run crawler
-   - docker compose --profile crawl run -rm --build crawler
-3. Run ingestion
-docker compose --profile ingest run --rm --build ingestion `
+## Quickstart
+
+### 1) Clone the repo
+```bash
+git clone https://github.com/Matthew-J-Lew/tmu-chatbot.git
+cd tmu-chatbot
+```
+
+### 2) Start the core services
+This starts Postgres (pgvector), Redis, Ollama, the API, and Adminer (DB UI):
+```bash
+docker compose up -d --build
+```
+
+Check status:
+```bash
+docker compose ps
+```
+
+### 3) Pull an Ollama model
+The default model is set in `docker-compose.yml` under `api.environment.OLLAMA_MODEL`.
+
+Pull it (or any model you want) inside the Ollama container:
+```bash
+docker compose exec ollama ollama pull qwen2.5:1.5b
+docker compose exec ollama ollama list
+```
+
+If you change `OLLAMA_MODEL`, restart the API:
+```bash
+docker compose up -d --build api
+```
+
+### 4) Put some data in the database
+
+## Ingesting data
+
+### Option A: crawl then ingest from the DB
+
+This is the “production-style” flow:
+1) crawl URLs into `crawl_targets`
+2) ingest approved targets from the DB
+
+**Run the crawler** (uses `app/crawler/profiles.yaml`):
+```bash
+docker compose --profile crawl run --rm crawler \
+  python -m app.crawler.crawl --profile arts
+```
+
+**Then ingest from DB targets**:
+```bash
+docker compose --profile ingest run --rm ingestion \
   python -m app.ingestion.ingest --mode db --profile arts --limit 200
+```
 
-Change the limit as you see fit
+Verify:
+```bash
+docker compose exec pg psql -U rag -d ragdb -c "SELECT status, COUNT(*) FROM crawl_targets GROUP BY status ORDER BY COUNT(*) DESC;"
+docker compose exec pg psql -U rag -d ragdb -c "SELECT COUNT(*) FROM chunks;"
+```
+
+### Option B: run the scheduler (crawl+ingest on an interval)
+
+This runs the pipeline continuously inside a container.
+It’s convenient for a Docker-only deployment; in production you might prefer cron/CI.
+
+Start it:
+```bash
+docker compose --profile pipeline up -d --build pipeline
+```
+
+Stop it:
+```bash
+docker compose --profile pipeline stop pipeline
+```
+
+Scheduler knobs live in `docker-compose.yml` under `pipeline.environment`:
+- `PIPELINE_PROFILES`
+- `PIPELINE_INTERVAL_SECONDS`
+- `CRAWL_RPS`, `CRAWL_ENABLE_SITEMAPS`
+- `INGEST_LIMIT`
+
+---
+
+## Calling the API
+
+### Health check
+```bash
+curl http://localhost:8000/healthz
+```
+
+### Ask a question (macOS/Linux)
+```bash
+curl -s http://localhost:8000/api/chat \
+  -H "Content-Type: application/json" \
+  -d '{"question":"What undergraduate programs are offered at the Faculty of Arts?"}' | jq
+```
+
+### Ask a question (Windows PowerShell)
+```powershell
+Invoke-RestMethod -Method Post -Uri "http://localhost:8000/api/chat" `
+  -ContentType "application/json" `
+  -Body (@{question="What undergraduate programs are offered at the Faculty of Arts?"} | ConvertTo-Json) | ConvertTo-Json -Depth 10
+```
+
+### What you get back
+A JSON response containing:
+- `answer` (with citations like `[1]`)
+- `sources` (URL list)
+- `timings` + `latency_ms`
+- `cached` (whether Redis returned a cached response)
+
+---
+
+## Debug / inspection tools
+
+These are helpful when tuning retrieval and prompt size.
+
+Open a shell in the API container:
+```bash
+docker compose run --rm api bash
+```
+
+Print the **retrieved chunks** (what RAG is feeding into the prompt):
+```bash
+python -m app.tools.inspect_retrieval "How do I apply to the Faculty of Arts?" 6 20 1200
+```
+
+Print the **full exact prompt** sent to the LLM:
+```bash
+python -m app.tools.inspect_prompt "What undergraduate programs are offered at the Faculty of Arts?" 4 12
+```
+
+Inspect recent crawl/ingest runs and URL status counts:
+```bash
+python -m app.tools.inspect_pipeline_stats
+```
+
+---
+
+## Tuning knobs
+
+Most knobs can be adjusted by editing `docker-compose.yml` (recommended for simple deployments).
+Anything that changes embeddings/chunking usually requires **re-ingesting**.
+
+### LLM generation + latency
+In `docker-compose.yml` → `api.environment`:
+- `OLLAMA_MODEL` — which model to call (must be pulled in Ollama)
+- `OLLAMA_NUM_PREDICT` — max tokens to generate (higher = longer answers, slower)
+- `OLLAMA_TEMPERATURE`, `OLLAMA_TOP_P` — creativity vs determinism
+- `OLLAMA_TIMEOUT_SECONDS`, `OLLAMA_MAX_RETRIES` — reliability under load
+- `MAX_CONCURRENT_LLM` — caps concurrent LLM calls to stabilize latency
+
+Also in `docker-compose.yml` → `ollama.environment`:
+- `OLLAMA_KEEP_ALIVE` — keeps models loaded longer to reduce cold starts
+
+### Retrieval quality vs speed
+In `docker-compose.yml` → `api.environment`:
+- `RAG_TOP_K` — how many chunks make it into the final prompt
+- `RAG_NUM_CANDIDATES` — how many candidates are pulled from Postgres before rerank
+- `RERANK_ENABLED` — `"true"`/`"false"` to enable the cross-encoder reranker
+- `RERANK_MODEL` — reranker model name (defaults in `app/rag/reranker.py`)
+
+Rule of thumb:
+- Increase `RAG_NUM_CANDIDATES` for better recall (but reranking gets slower)
+- Increase `RAG_TOP_K` if answers need more context (prompt gets bigger/slower)
+
+### Prompt/context sizing
+In `docker-compose.yml` → `api.environment`:
+- `MAX_CHUNK_CHARS` — per-chunk cap in prompt (smaller = faster, less context)
+- `MAX_CONTEXT_CHARS` — total prompt context cap (smaller = faster)
+
+If you see answers getting cut off or missing citations, these caps are often the reason.
+
+### Caching (Redis)
+In `docker-compose.yml` → `api.environment`:
+- `CACHE_TTL_RESPONSE` — cache full model responses (seconds)
+- `CACHE_TTL_RETRIEVAL` — cache retrieval results (seconds)
+
+Set either TTL to `0` to effectively disable that cache.
+
+### Ingestion chunking + embeddings (requires re-ingest if changed)
+Ingestion reads env vars (see `app/ingestion/ingest.py`):
+- `CHUNK_TOKEN_SIZE` (default 250)
+- `CHUNK_TOKEN_OVERLAP` (default 50)
+- `EMBED_MODEL_NAME` (default `sentence-transformers/all-MiniLM-L6-v2`)
+
+**Important:** the embedding model must match runtime query embedding in `app/rag/embeddings.py`
+(currently hard-coded to `sentence-transformers/all-MiniLM-L6-v2`, 384 dims).
+
+If you change embedding dimension:
+- update `VECTOR(384)` in `app/ingestion/schema.sql`
+- re-create the embedding index
+- re-ingest everything
+
+### Crawler scope and politeness
+Crawler knobs:
+- `app/crawler/profiles.yaml` — seeds, allowed domains, deny patterns, max depth/pages
+- `CRAWL_RPS` — requests per second per host (politeness)
+- `CRAWL_ENABLE_SITEMAPS` — whether to use sitemaps
+- `CRAWL_TIMEOUT_SECONDS`, `CRAWL_USER_AGENT`
+
+---
+
+## Troubleshooting
+
+### “The API is running but answers are bad / irrelevant”
+- You probably haven’t ingested enough relevant pages yet.
+- Try: crawl + ingest more pages (`--limit 500`, increase `max_pages`, etc.)
+- Inspect what’s being retrieved:
+  ```bash
+  docker compose run --rm api python -m app.tools.inspect_retrieval "YOUR QUESTION"
+  ```
+
+### “Ollama model not found”
+Pull the model:
+```bash
+docker compose exec ollama ollama pull qwen2.5:1.5b
+```
+Then restart API:
+```bash
+docker compose up -d --build api
+```
+
+### “Responses are slow”
+Common causes:
+- Model is too large for your machine (try a smaller model)
+- Reranker is enabled and CPU-only (set `RERANK_ENABLED=false` to test)
+- Prompt is too large (reduce `MAX_CONTEXT_CHARS` / `MAX_CHUNK_CHARS`)
+- Too much concurrency (reduce `MAX_CONCURRENT_LLM`)
+
+### “Start fresh” (wipe DB + models)
+⚠️ This deletes Postgres data and local Ollama models stored in Docker volumes.
+```bash
+docker compose down -v
+docker compose up -d --build
+```
+
+### View the database in a browser (Adminer)
+Adminer runs at:
+- http://localhost:8080
+
+Use:
+- System: `PostgreSQL`
+- Server: `pg`
+- Username: `rag`
+- Password: `rag`
+- Database: `ragdb`
+
+---
+
+## Project layout
+
+```
+app/
+  api/          FastAPI service + Redis cache + asyncpg + Ollama client
+  crawler/      URL discovery into Postgres (crawl_profiles, crawl_targets)
+  ingestion/    Fetch/parse/chunk/embed -> Postgres (sources, chunks)
+  pipeline/     Optional scheduler that runs crawl+ingest repeatedly
+  rag/          Embeddings, hybrid retrieval, optional reranker
+  tools/        Small CLI utilities for debugging retrieval/prompt/pipeline stats
+docker-compose.yml
+```
+
+---
+
+## Notes
+- In case the commands/instructions in this file don't work, refer to README_OLD.md for commands
+- For some of the tuning knobs, there may be multiple instances of value assignment for them (one in docker-compose.yml, and another maybe in some python file). If updating the docker compose does not immediately change a tuning knob, search the repo for any other local instances.
+
+## TODO:
+- Experiment with different prompt sizes, number of chunks, and chunk sizes, etc. to find out what the best balance is for each tuning knob in our specific case/dataset/
+- Due to beautiful soup having trouple parsing JavaScript-heavy pages, we need to look into another crawler or ingestion tool
