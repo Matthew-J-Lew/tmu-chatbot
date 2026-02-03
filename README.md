@@ -325,5 +325,9 @@ docker-compose.yml
 - For some of the tuning knobs, there may be multiple instances of value assignment for them (one in docker-compose.yml, and another maybe in some python file). If updating the docker compose does not immediately change a tuning knob, search the repo for any other local instances.
 
 ## TODO:
-- Experiment with different prompt sizes, number of chunks, and chunk sizes, etc. to find out what the best balance is for each tuning knob in our specific case/dataset/
-- Due to beautiful soup having trouple parsing JavaScript-heavy pages, we need to look into another crawler or ingestion tool
+- Experiment with different prompt sizes, number of chunks, and chunk sizes, etc. to find out what the best balance is for each tuning knob in our specific case/dataset.
+- Because local OLLAMA LLM is relatively slow even with smaller models, we need to implement using a hosted LLM API to improve answer quality and increase speed.
+- Change app/crawler/profiles.yaml to ingest more TMU webpages, not just the arts pages.
+- Make the frontend widget to be placed on TMU webpages.
+- Make a "Goldset/FAQ" document so common questions can easily be answered instead of relying on hard-to-find webpage content
+- Due to beautiful soup having trouple parsing JavaScript-heavy pages, we need to look into another crawler or ingestion tool.
