@@ -119,25 +119,6 @@ docker compose run --rm api python -m app.tools.inspect_prompt "QUESTION"
 RUNNING FULL PIPELINE:
 
 Invoke-RestMethod -Method Post -Uri "http://localhost:8000/api/chat" -ContentType "application/json" -Body (@{question="Can you list all the undergraduate programs?"} | ConvertTo-Json) | ConvertTo-Json -Depth 10
-Invoke-RestMethod -Method Post -Uri "http://localhost:8000/api/chat" -ContentType "application/json" -Body (@{question="Tell me about the co-op program"} | ConvertTo-Json) | ConvertTo-Json -Depth 10
-Invoke-RestMethod -Method Post -Uri "http://localhost:8000/api/chat" -ContentType "application/json" -Body (@{question="Who is Mohamed Lachemi?"} | ConvertTo-Json) | ConvertTo-Json -Depth 10
-Invoke-RestMethod -Method Post -Uri "http://localhost:8000/api/chat" -ContentType "application/json" -Body (@{question="Who is the dean of the entire school? not just the faculty of arts?"} | ConvertTo-Json) | ConvertTo-Json -Depth 10
-Invoke-RestMethod -Method Post -Uri "http://localhost:8000/api/chat" -ContentType "application/json" -Body (@{question="Who is Dr Amy Peng?"} | ConvertTo-Json) | ConvertTo-Json -Depth 10
-Invoke-RestMethod -Method Post -Uri "http://localhost:8000/api/chat" -ContentType "application/json" -Body (@{question="Who is the dean of the entire school?"} | ConvertTo-Json) | ConvertTo-Json -Depth 10
-Invoke-RestMethod -Method Post -Uri "http://localhost:8000/api/chat" -ContentType "application/json" -Body (@{question="Who created you?"} | ConvertTo-Json) 
-| ConvertTo-Json -Depth 10
-Invoke-RestMethod -Method Post -Uri "http://localhost:8000/api/chat" -ContentType "application/json" -Body (@{question="Who is the IT lead of the faculty of 
-arts?"} | ConvertTo-Json) | ConvertTo-Json -Depth 10
-Invoke-RestMethod -Method Post -Uri "http://localhost:8000/api/chat" -ContentType "application/json" -Body (@{question="Who is Michael MacDonald?"} | ConvertTo-Json) | ConvertTo-Json -Depth 10
-Invoke-RestMethod -Method Post -Uri "http://localhost:8000/api/chat" -ContentType "application/json" -Body (@{question="Who is Valerie Deacon?"} | ConvertTo-Json) | ConvertTo-Json -Depth 10
-Invoke-RestMethod -Method Post -Uri "http://localhost:8000/api/chat" -ContentType "application/json" -Body (@{question="Who is the leader of the faculty of arts?"} | ConvertTo-Json) | ConvertTo-Json -Depth 10
-Invoke-RestMethod -Method Post -Uri "http://localhost:8000/api/chat" -ContentType "application/json" -Body (@{question="Who can I go to if i have additional 
-questions?"} | ConvertTo-Json) | ConvertTo-Json -Depth 10
-Invoke-RestMethod -Method Post -Uri "http://localhost:8000/api/chat" -ContentType "application/json" -Body (@{question="List a few students from the dean's list in 2021"} | ConvertTo-Json) | ConvertTo-Json -Depth 10
-Invoke-RestMethod -Method Post -Uri "http://localhost:8000/api/chat" -ContentType "application/json" -Body (@{question="What webpages can i go to to read about the co-op program?"} | ConvertTo-Json) | ConvertTo-Json -Depth 10
-Invoke-RestMethod -Method Post -Uri "http://localhost:8000/api/chat" -ContentType "application/json" -Body (@{question="Who is Matthew Lu?"} | ConvertTo-Json) | ConvertTo-Json -Depth 10
-Invoke-RestMethod -Method Post -Uri "http://localhost:8000/api/chat" -ContentType "application/json" -Body (@{question="Can you list all the undergraduate programs?"} | ConvertTo-Json) | ConvertTo-Json -Depth 10
-
 
 BONUS MILESTONE: WEB SPIDER/CRAWLING  + DATABASE INGESTION 
 1. We give the spider a starting page/seed (in this case https://www.torontomu.ca/arts/)

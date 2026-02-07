@@ -4,8 +4,13 @@ A small, Docker-first **Retrieval-Augmented Generation (RAG)** stack for answeri
 
 - **Postgres + pgvector** for storage and hybrid retrieval (keyword + embeddings)
 - **A crawler + ingestion pipeline** to discover/ingest official pages (HTML/PDF/CSV/XLSX)
-- **A FastAPI service** that retrieves context, optionally reranks, and calls a local LLM
+- **A FastAPI service** that retrieves context, optionally reranks, and calls an LLM
 - **Redis** for response/retrieval caching
+
+This repo supports **two interchangeable LLM backends**:
+
+- **Azure OpenAI (recommended)** — fast, hosted, production-oriented
+- **Ollama (optional)** — local fallback for offline dev / emergency back-pocket use
 
 ---
 
@@ -14,6 +19,7 @@ A small, Docker-first **Retrieval-Augmented Generation (RAG)** stack for answeri
 - [Architecture](#architecture)
 - [Prerequisites](#prerequisites)
 - [Quickstart](#quickstart)
+- [LLM configuration (Azure OpenAI vs Ollama)](#llm-configuration-azure-openai-vs-ollama)
 - [Ingesting data](#ingesting-data)
 - [Calling the API](#calling-the-api)
 - [Debug / inspection tools](#debug--inspection-tools)
@@ -29,14 +35,14 @@ High-level flow:
 
 1. **Crawl**: discover in-scope URLs and store them in Postgres (`crawl_targets`)
 2. **Ingest**: fetch approved pages/files → extract text → chunk → embed → store in Postgres (`sources`, `chunks`)
-3. **Ask a question**: embed query → hybrid search in Postgres → (optional) rerank → build prompt → call Ollama → return answer + citations
+3. **Ask a question**: embed query → hybrid search in Postgres → (optional) rerank → build prompt → **call the configured LLM provider** → return answer + citations
 
 ```
 User -> FastAPI (/api/chat)
           |-> retrieve (pgvector + full-text) -> candidates
           |-> optional rerank (cross-encoder)
           |-> prompt builder (strict "use only context")
-          |-> LLM generate
+          |-> LLM generate (Azure OpenAI OR Ollama)
           `-> JSON: answer + sources + timings (+ caching via Redis)
 ```
 
@@ -49,8 +55,8 @@ User -> FastAPI (/api/chat)
 - **Docker Compose** (the modern `docker compose` command)
 
 ### Recommended
-- 8–16GB RAM (LLMs can be memory-hungry depending on the model)
-- More CPU cores helps ingestion + reranking latency
+- 8–16GB RAM (more helps ingestion + reranking)
+- If you plan to use **Ollama locally**, more RAM/CPU helps (model-dependent)
 
 ---
 
@@ -62,8 +68,21 @@ git clone https://github.com/Matthew-J-Lew/tmu-chatbot.git
 cd tmu-chatbot
 ```
 
-### 2) Start the core services
-This starts Postgres (pgvector), Redis, Ollama, the API, and Adminer (DB UI):
+### 2) Create your environment file
+Docker Compose automatically reads a `.env` file in the project root for variable substitution.
+
+```bash
+cp .env.example .env
+```
+
+Then open `.env` and set at least:
+- `AZURE_OPENAI_API_KEY=...` (do **not** commit this)
+- `LLM_PROVIDER=azure` (recommended)
+
+### 3) Start the core services
+This starts Postgres (pgvector), Redis, the API, and Adminer (DB UI).
+Ollama also starts by default, but it is only *used* if `LLM_PROVIDER=ollama`.
+
 ```bash
 docker compose up -d --build
 ```
@@ -73,21 +92,58 @@ Check status:
 docker compose ps
 ```
 
-### 3) Pull an Ollama model
-The default model is set in `docker-compose.yml` under `api.environment.OLLAMA_MODEL`.
+### 4) Put some data in the database
+Follow [Ingesting data](#ingesting-data). Once chunks exist, you can start asking questions via the API.
 
-Pull it (or any model you want) inside the Ollama container:
+---
+
+## LLM configuration (Azure OpenAI vs Ollama)
+
+The API reads these environment variables (see `.env.example`):
+
+### Provider selection
+- `LLM_PROVIDER=azure|ollama`
+  - `azure` uses Azure OpenAI Chat Completions (recommended)
+  - `ollama` uses the local Ollama container
+- Optional fallback:
+  - `LLM_FALLBACK_PROVIDER=ollama|azure`
+  - If the primary provider fails, the API will try the fallback **once**.
+
+### Azure OpenAI (recommended)
+Set these in `.env`:
+
+- `AZURE_OPENAI_ENDPOINT` (defaults to the Faculty of Arts resource endpoint)
+- `AZURE_OPENAI_API_KEY` (**required**)
+- `AZURE_OPENAI_DEPLOYMENT` (deployment name, e.g. `gpt-4o-mini`)
+- `AZURE_OPENAI_API_VERSION` (default `2024-10-21`)
+
+Cost-control defaults:
+- `AZURE_OPENAI_MAX_TOKENS=512` (hard-capped at 512 in config)
+- `AZURE_OPENAI_TEMPERATURE=0.1`
+
+**Swap models:** in Azure, you typically switch **deployments**, so changing
+`AZURE_OPENAI_DEPLOYMENT` is the normal way to “swap models” without code changes.
+
+### Ollama (optional / offline fallback)
+To use Ollama instead:
+
+1) Set in `.env`:
+```env
+LLM_PROVIDER=ollama
+```
+
+2) Pull the model you want (inside the Ollama container):
 ```bash
 docker compose exec ollama ollama pull qwen2.5:1.5b
 docker compose exec ollama ollama list
 ```
 
-If you change `OLLAMA_MODEL`, restart the API:
+3) If you change the model, restart the API:
 ```bash
 docker compose up -d --build api
 ```
 
-### 4) Put some data in the database
+---
 
 ## Ingesting data
 
@@ -99,14 +155,12 @@ This is the “production-style” flow:
 
 **Run the crawler** (uses `app/crawler/profiles.yaml`):
 ```bash
-docker compose --profile crawl run --rm crawler \
-  python -m app.crawler.crawl --profile arts
+docker compose --profile crawl run --rm crawler   python -m app.crawler.crawl --profile arts
 ```
 
 **Then ingest from DB targets**:
 ```bash
-docker compose --profile ingest run --rm ingestion \
-  python -m app.ingestion.ingest --mode db --profile arts --limit 200
+docker compose --profile ingest run --rm ingestion   python -m app.ingestion.ingest --mode db --profile arts --limit 200
 ```
 
 Verify:
@@ -147,16 +201,15 @@ curl http://localhost:8000/healthz
 
 ### Ask a question (macOS/Linux)
 ```bash
-curl -s http://localhost:8000/api/chat \
-  -H "Content-Type: application/json" \
-  -d '{"question":"What undergraduate programs are offered at the Faculty of Arts?"}' | jq
+curl -s http://localhost:8000/api/chat   -H "Content-Type: application/json"   -d '{"question":"What undergraduate programs are offered at the Faculty of Arts?"}' | jq
 ```
 
 ### Ask a question (Windows PowerShell)
 ```powershell
 Invoke-RestMethod -Method Post -Uri "http://localhost:8000/api/chat" `
   -ContentType "application/json" `
-  -Body (@{question="What undergraduate programs are offered at the Faculty of Arts?"} | ConvertTo-Json) | ConvertTo-Json -Depth 10
+  -Body (@{question="How many undergraduate programs are there in the faculty of arts? Can you list them all?"} | ConvertTo-Json) `
+| ConvertTo-Json -Depth 10
 ```
 
 ### What you get back
@@ -169,8 +222,6 @@ A JSON response containing:
 ---
 
 ## Debug / inspection tools
-
-These are helpful when tuning retrieval and prompt size.
 
 Open a shell in the API container:
 ```bash
@@ -199,10 +250,24 @@ python -m app.tools.inspect_pipeline_stats
 Most knobs can be adjusted by editing `docker-compose.yml` (recommended for simple deployments).
 Anything that changes embeddings/chunking usually requires **re-ingesting**.
 
-### LLM generation + latency
+### LLM provider selection
+In `.env`:
+- `LLM_PROVIDER` — `azure` or `ollama`
+- `LLM_FALLBACK_PROVIDER` — optional, try this provider once if the primary fails
+
+### Azure OpenAI generation + cost control
+In `.env` / `docker-compose.yml`:
+- `AZURE_OPENAI_ENDPOINT`
+- `AZURE_OPENAI_DEPLOYMENT` — **deployment name**
+- `AZURE_OPENAI_API_VERSION`
+- `AZURE_OPENAI_MAX_TOKENS` — capped at 512
+- `AZURE_OPENAI_TEMPERATURE` — recommended `0.1` for grounded RAG
+- `AZURE_OPENAI_TIMEOUT_SECONDS`
+
+### Ollama generation + latency
 In `docker-compose.yml` → `api.environment`:
 - `OLLAMA_MODEL` — which model to call (must be pulled in Ollama)
-- `OLLAMA_NUM_PREDICT` — max tokens to generate (higher = longer answers, slower)
+- `OLLAMA_NUM_PREDICT` — max tokens to generate
 - `OLLAMA_TEMPERATURE`, `OLLAMA_TOP_P` — creativity vs determinism
 - `OLLAMA_TIMEOUT_SECONDS`, `OLLAMA_MAX_RETRIES` — reliability under load
 - `MAX_CONCURRENT_LLM` — caps concurrent LLM calls to stabilize latency
@@ -227,6 +292,10 @@ In `docker-compose.yml` → `api.environment`:
 - `MAX_CONTEXT_CHARS` — total prompt context cap (smaller = faster)
 
 If you see answers getting cut off or missing citations, these caps are often the reason.
+
+### CORS (web widget)
+In `.env` / `docker-compose.yml`:
+- `CORS_ALLOW_ORIGINS` — comma-separated list (e.g. `https://www.torontomu.ca,http://localhost:3000`)
 
 ### Caching (Redis)
 In `docker-compose.yml` → `api.environment`:
@@ -260,6 +329,12 @@ Crawler knobs:
 
 ## Troubleshooting
 
+### “Azure OpenAI calls fail”
+Common issues:
+- **401/403**: `AZURE_OPENAI_API_KEY` missing/incorrect.
+- **404**: wrong `AZURE_OPENAI_DEPLOYMENT` (deployment name must exist in Azure).
+- **429**: rate limit hit; reduce concurrency (`MAX_CONCURRENT_LLM`) and/or request sizes.
+
 ### “The API is running but answers are bad / irrelevant”
 - You probably haven’t ingested enough relevant pages yet.
 - Try: crawl + ingest more pages (`--limit 500`, increase `max_pages`, etc.)
@@ -280,10 +355,10 @@ docker compose up -d --build api
 
 ### “Responses are slow”
 Common causes:
-- Model is too large for your machine (try a smaller model)
 - Reranker is enabled and CPU-only (set `RERANK_ENABLED=false` to test)
 - Prompt is too large (reduce `MAX_CONTEXT_CHARS` / `MAX_CHUNK_CHARS`)
 - Too much concurrency (reduce `MAX_CONCURRENT_LLM`)
+- Using a large local Ollama model for your machine (try a smaller model)
 
 ### “Start fresh” (wipe DB + models)
 ⚠️ This deletes Postgres data and local Ollama models stored in Docker volumes.
@@ -309,13 +384,14 @@ Use:
 
 ```
 app/
-  api/          FastAPI service + Redis cache + asyncpg + Ollama client
+  api/          FastAPI service + Redis cache + asyncpg + (Azure OpenAI / Ollama) client
   crawler/      URL discovery into Postgres (crawl_profiles, crawl_targets)
   ingestion/    Fetch/parse/chunk/embed -> Postgres (sources, chunks)
   pipeline/     Optional scheduler that runs crawl+ingest repeatedly
   rag/          Embeddings, hybrid retrieval, optional reranker
   tools/        Small CLI utilities for debugging retrieval/prompt/pipeline stats
 docker-compose.yml
+.env.example
 ```
 
 ---

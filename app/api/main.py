@@ -5,7 +5,7 @@ High-level flow (non-technical explanation):
 1) A user asks a question.
 2) We look in a specialized database (RAG DB) to find the best official TMU text snippets.
 3) We build a strict prompt that tells the AI: "use only these snippets and cite them."
-4) We call the language model (Ollama) to generate an answer.
+4) We call the language model (Azure OpenAI or Ollama) to generate an answer.
 5) We return JSON: answer + sources + performance timings.
 
 Production upgrades included:
@@ -26,6 +26,7 @@ from time import perf_counter
 import asyncio
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -37,15 +38,25 @@ from app.api.config import (
     CACHE_TTL_RESPONSE,
     CACHE_TTL_RETRIEVAL,
     MAX_CONCURRENT_LLM,
+    CORS_ALLOW_ORIGINS,
 )
 from app.api.db import init_db_pool, close_db_pool, get_pool
 from app.api.cache import init_redis, close_redis, make_cache_key, cache_get_json, cache_set_json
-from app.api.ollama_client import init_ollama_client, close_ollama_client, generate, generate_stream
+from app.api.llm_client import init_llm_client, close_llm_client, generate, generate_stream
 
 from app.rag.retrieval import retrieve
 
 
 app = FastAPI(title="TMU Faculty of Arts Chatbot API", version="3.0-prod")
+
+# CORS is required for the web widget deployment.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=CORS_ALLOW_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["POST"],
+    allow_headers=["*"],
+)
 
 # Concurrency limiter: prevents too many simultaneous LLM calls (stabilizes latency)
 _llm_semaphore = asyncio.Semaphore(MAX_CONCURRENT_LLM)
@@ -91,12 +102,12 @@ async def _startup() -> None:
     # Keep long-lived resources ready for fast performance.
     await init_db_pool()
     await init_redis()
-    await init_ollama_client()
+    await init_llm_client()
 
 
 @app.on_event("shutdown")
 async def _shutdown() -> None:
-    await close_ollama_client()
+    await close_llm_client()
     await close_redis()
     await close_db_pool()
 
@@ -132,7 +143,9 @@ def redact_pii(text: str) -> str:
     return text
 
 
-def build_prompt_and_sources(question: str, chunks: List[Dict[str, Any]]) -> tuple[str, List[SourceItem]]:
+def build_messages_and_sources(
+    question: str, chunks: List[Dict[str, Any]]
+) -> tuple[List[Dict[str, str]], List[SourceItem]]:
     """
     Build a strict prompt with numbered context passages.
 
@@ -170,14 +183,18 @@ def build_prompt_and_sources(question: str, chunks: List[Dict[str, Any]]) -> tup
         "Keep the answer concise and factual.\n"
     )
 
-    prompt = (
-        f"{system_instructions}\n"
+    user_content = (
         f"USER QUESTION:\n{question}\n\n"
         f"CONTEXT PASSAGES:\n{''.join(context_lines)}\n"
         f"FINAL ANSWER (with citations):\n"
     )
 
-    return prompt, sources
+    messages = [
+        {"role": "system", "content": system_instructions},
+        {"role": "user", "content": user_content},
+    ]
+
+    return messages, sources
 
 
 # -----------------------------
@@ -232,16 +249,16 @@ async def chat(req: ChatRequest) -> ChatResponse:
 
     # ---- Prompt building ----
     start_prompt = perf_counter()
-    prompt, sources = build_prompt_and_sources(q, chunks)
+    messages, sources = build_messages_and_sources(q, chunks)
     prompt_ms = int((perf_counter() - start_prompt) * 1000)
 
     # ---- LLM call (rate-limited) ----
     start_llm = perf_counter()
     async with _llm_semaphore:
         try:
-            raw = await generate(prompt)
+            raw = await generate(messages)
         except Exception as e:
-            raise HTTPException(status_code=502, detail=f"Ollama request failed: {e}")
+            raise HTTPException(status_code=502, detail=f"LLM request failed: {e}")
 
     llm_ms = int((perf_counter() - start_llm) * 1000)
 
@@ -289,14 +306,15 @@ async def chat_stream(req: ChatRequest):
 
     pool = get_pool()
     chunks = await retrieve(pool=pool, query=q, k=RAG_TOP_K, num_candidates=RAG_NUM_CANDIDATES)
-    prompt, _sources = build_prompt_and_sources(q, chunks)
+    messages, _sources = build_messages_and_sources(q, chunks)
 
     async def _iter():
         async with _llm_semaphore:
             try:
-                async for piece in generate_stream(prompt):
-                    yield piece
+                async for piece in generate_stream(messages):
+                    # Chunk-level redaction; may miss patterns spanning boundaries.
+                    yield redact_pii(piece)
             except Exception as e:
-                yield f"\n\n[ERROR] Ollama request failed: {e}"
+                yield f"\n\n[ERROR] LLM request failed: {e}"
 
     return StreamingResponse(_iter(), media_type="text/plain")
