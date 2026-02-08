@@ -399,8 +399,11 @@ docker-compose.yml
 
 ## TODO:
 - Experiment with different prompt sizes, number of chunks, and chunk sizes, etc. to find out what the best balance is for each tuning knob in our specific case/dataset.
-- Because local OLLAMA LLM is relatively slow even with smaller models, we need to implement using a hosted LLM API to improve answer quality and increase speed.
 - Change app/crawler/profiles.yaml to ingest more TMU webpages, not just the arts pages.
 - Make the frontend widget to be placed on TMU webpages.
 - Make a "Goldset/FAQ" document so common questions can easily be answered instead of relying on hard-to-find webpage content
-- Due to beautiful soup having trouple parsing JavaScript-heavy pages, we need to look into another crawler or ingestion tool.
+
+## PROPOSED TODO:
+- For list data like programs, departments, dates, store them in database tables and return query summaries + links at runtime instead of relying on RAG (this way LLM is formatting, not finding)
+- Detect when a question asks for specific lists or information and either increase retrieved context, or fallback to tables.
+- Work on “smart ingestion”: chunk information based on headings / lists instead of raw text count.
