@@ -1,23 +1,29 @@
-FROM python:3.11-slim
+FROM mcr.microsoft.com/playwright/python:v1.57.0-noble
 
-# System deps for lxml + PDF parsing
+# System deps for building wheels + SSL certs + python venv support
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential libxml2-dev libxslt1-dev poppler-utils \
+    build-essential \
+    ca-certificates \
+    python3-venv \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Install ingestion dependencies
+# Use a venv so installs don't touch system site-packages (more stable on WSL/Docker Desktop)
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1 PIP_NO_CACHE_DIR=1 PIP_DEFAULT_TIMEOUT=120
+
 COPY app/ingestion/requirements.txt ./requirements.txt
-RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the shared app package so we can run app.ingestion.ingest
+# Install CPU-only torch first to avoid pulling large CUDA wheels from PyPI
+RUN pip install --upgrade pip setuptools wheel \
+ && pip install --index-url https://download.pytorch.org/whl/cpu torch \
+ && pip install -r requirements.txt
+
 COPY app /app/app
-
-# Legacy allowlist (still useful for ad-hoc ingestion)
 COPY app/ingestion/allowlist.yaml /app/allowlist.yaml
 
 ENV PGHOST=pg PGUSER=rag PGPASSWORD=rag PGDATABASE=ragdb
 
-# Default command (mode controlled via INGEST_MODE env var)
 CMD ["python", "-m", "app.ingestion.ingest"]

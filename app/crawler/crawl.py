@@ -124,6 +124,11 @@ def url_in_scope(url: str, allowed_domains: List[str], allowed_prefixes: List[st
     if allowed_domains and not any(host == d or host.endswith("." + d) for d in allowed_domains):
         return False, "domain_not_allowed"
 
+    # Guardrail: URLs that contain an email address in the path are almost never valid content pages
+    # and tend to 404 (e.g., /contact/name@torontomu.ca).
+    if '@' in path:
+        return False, 'email_in_path'
+
     if allowed_prefixes and not any(path.startswith(pref) for pref in allowed_prefixes):
         return False, "path_prefix_not_allowed"
 
@@ -235,7 +240,21 @@ def load_profiles_yaml(path: str) -> dict:
 
 
 def ensure_profile(cur, name: str, yaml_path: str) -> CrawlProfile:
-    """Ensure a profile exists in DB; bootstrap it from YAML if missing."""
+    """Ensure a profile exists in DB; sync it from YAML when available.
+
+    Why sync?
+    - Profiles are edited in profiles.yaml (scope fixes, new seeds, etc.)
+    - Without syncing, existing DB rows would keep stale scope rules.
+    """
+
+    # Load YAML profile (if present) so DB stays in sync with the repo config.
+    prof_cfg = None
+    try:
+        cfg = load_profiles_yaml(yaml_path)
+        prof_cfg = (cfg.get("profiles") or {}).get(name)
+    except Exception:
+        prof_cfg = None
+
     cur.execute(
         """
         SELECT id, name, seeds, allowed_domains, allowed_path_prefixes, deny_path_regex,
@@ -246,6 +265,59 @@ def ensure_profile(cur, name: str, yaml_path: str) -> CrawlProfile:
         (name,),
     )
     row = cur.fetchone()
+
+    # If profile exists and we have YAML config, keep DB updated.
+    if row and prof_cfg is not None:
+        pid = int(row[0])
+        seeds = list(prof_cfg.get("seeds", []))
+        allowed_domains = list(prof_cfg.get("allowed_domains", []))
+        allowed_path_prefixes = list(prof_cfg.get("allowed_path_prefixes", []))
+        deny_path_regex = list(prof_cfg.get("deny_path_regex", []))
+        strip_query = bool(prof_cfg.get("strip_query", True))
+        include_pdfs = bool(prof_cfg.get("include_pdfs", True))
+        max_pages = int(prof_cfg.get("max_pages", 5000))
+        max_depth = int(prof_cfg.get("max_depth", 6))
+
+        cur.execute(
+            """
+            UPDATE crawl_profiles
+            SET seeds=%s,
+                allowed_domains=%s,
+                allowed_path_prefixes=%s,
+                deny_path_regex=%s,
+                strip_query=%s,
+                include_pdfs=%s,
+                max_pages=%s,
+                max_depth=%s,
+                updated_at=NOW()
+            WHERE id=%s;
+            """,
+            (
+                Json(seeds),
+                Json(allowed_domains),
+                Json(allowed_path_prefixes),
+                Json(deny_path_regex),
+                strip_query,
+                include_pdfs,
+                max_pages,
+                max_depth,
+                pid,
+            ),
+        )
+
+        return CrawlProfile(
+            id=pid,
+            name=name,
+            seeds=seeds,
+            allowed_domains=allowed_domains,
+            allowed_path_prefixes=allowed_path_prefixes,
+            deny_path_regex=deny_path_regex,
+            strip_query=strip_query,
+            include_pdfs=include_pdfs,
+            max_pages=max_pages,
+            max_depth=max_depth,
+        )
+
     if row:
         return CrawlProfile(
             id=int(row[0]),
@@ -260,9 +332,8 @@ def ensure_profile(cur, name: str, yaml_path: str) -> CrawlProfile:
             max_depth=int(row[9]),
         )
 
-    cfg = load_profiles_yaml(yaml_path)
-    prof = (cfg.get("profiles") or {}).get(name)
-    if not prof:
+    # Profile missing in DB: bootstrap from YAML.
+    if prof_cfg is None:
         raise RuntimeError(f"Profile {name!r} not found in DB or YAML at {yaml_path}")
 
     cur.execute(
@@ -274,28 +345,28 @@ def ensure_profile(cur, name: str, yaml_path: str) -> CrawlProfile:
         """,
         (
             name,
-            Json(prof.get("seeds", [])),
-            Json(prof.get("allowed_domains", [])),
-            Json(prof.get("allowed_path_prefixes", [])),
-            Json(prof.get("deny_path_regex", [])),
-            bool(prof.get("strip_query", True)),
-            bool(prof.get("include_pdfs", True)),
-            int(prof.get("max_pages", 5000)),
-            int(prof.get("max_depth", 6)),
+            Json(prof_cfg.get("seeds", [])),
+            Json(prof_cfg.get("allowed_domains", [])),
+            Json(prof_cfg.get("allowed_path_prefixes", [])),
+            Json(prof_cfg.get("deny_path_regex", [])),
+            bool(prof_cfg.get("strip_query", True)),
+            bool(prof_cfg.get("include_pdfs", True)),
+            int(prof_cfg.get("max_pages", 5000)),
+            int(prof_cfg.get("max_depth", 6)),
         ),
     )
     pid = int(cur.fetchone()[0])
     return CrawlProfile(
         id=pid,
         name=name,
-        seeds=list(prof.get("seeds", [])),
-        allowed_domains=list(prof.get("allowed_domains", [])),
-        allowed_path_prefixes=list(prof.get("allowed_path_prefixes", [])),
-        deny_path_regex=list(prof.get("deny_path_regex", [])),
-        strip_query=bool(prof.get("strip_query", True)),
-        include_pdfs=bool(prof.get("include_pdfs", True)),
-        max_pages=int(prof.get("max_pages", 5000)),
-        max_depth=int(prof.get("max_depth", 6)),
+        seeds=list(prof_cfg.get("seeds", [])),
+        allowed_domains=list(prof_cfg.get("allowed_domains", [])),
+        allowed_path_prefixes=list(prof_cfg.get("allowed_path_prefixes", [])),
+        deny_path_regex=list(prof_cfg.get("deny_path_regex", [])),
+        strip_query=bool(prof_cfg.get("strip_query", True)),
+        include_pdfs=bool(prof_cfg.get("include_pdfs", True)),
+        max_pages=int(prof_cfg.get("max_pages", 5000)),
+        max_depth=int(prof_cfg.get("max_depth", 6)),
     )
 
 

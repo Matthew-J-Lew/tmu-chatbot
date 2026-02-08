@@ -11,6 +11,8 @@ profiles:
     allowed_path_prefixes:
       - /arts
       - /arts/
+      - /arts-contemporary-studies
+      - /arts-contemporary-studies/
     deny_path_regex:
       - ^/arts/news
       - ^/arts/events?
@@ -24,4 +26,3 @@ profiles:
     include_pdfs: true
     max_pages: 8000
     max_depth: 6
-

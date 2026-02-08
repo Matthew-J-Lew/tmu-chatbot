@@ -12,7 +12,7 @@ import re
 import time
 import urllib.parse
 from datetime import datetime, timezone
-from typing import Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import pandas as pd
 import psycopg2
@@ -20,6 +20,13 @@ import requests
 import tiktoken
 import yaml
 from bs4 import BeautifulSoup
+
+# Optional JS-rendering support for modern sites
+try:
+    from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
+except Exception:  # pragma: no cover
+    sync_playwright = None
+    PlaywrightTimeoutError = Exception
 from pdfminer.high_level import extract_text as pdf_extract_text
 from psycopg2.extras import Json
 from sentence_transformers import SentenceTransformer
@@ -38,9 +45,44 @@ CHUNK_TOKEN_OVERLAP = int(os.getenv("CHUNK_TOKEN_OVERLAP", "50"))
 
 USER_AGENT = os.getenv("INGEST_USER_AGENT", "TMU-FOA-RAG-Ingest/0.2 (+https://www.torontomu.ca/arts/)")
 
+
+def _env_bool(name: str, default: str = "false") -> bool:
+    v = os.getenv(name, default)
+    return str(v).lower() in {"1", "true", "yes", "y", "on"}
+
+# Playwright controls (JS-rendering during ingestion)
+INGEST_USE_PLAYWRIGHT = _env_bool("INGEST_USE_PLAYWRIGHT", "false")
+INGEST_PLAYWRIGHT_ALWAYS = _env_bool("INGEST_PLAYWRIGHT_ALWAYS", "false")
+INGEST_PLAYWRIGHT_FALLBACK = _env_bool("INGEST_PLAYWRIGHT_FALLBACK", "true")
+INGEST_MIN_EXTRACTED_CHARS = int(os.getenv("INGEST_MIN_EXTRACTED_CHARS", "400"))
+PLAYWRIGHT_EXPAND_ACCORDIONS = _env_bool("PLAYWRIGHT_EXPAND_ACCORDIONS", "true")
+PLAYWRIGHT_NAV_TIMEOUT_MS = int(os.getenv("PLAYWRIGHT_NAV_TIMEOUT_MS", "45000"))
+PLAYWRIGHT_WAIT_UNTIL = os.getenv("PLAYWRIGHT_WAIT_UNTIL", "domcontentloaded")
+
 # Model + tokenizer are initialized once to amortize startup cost per ingestion run
 model = SentenceTransformer(EMBED_MODEL_NAME)
 enc = tiktoken.get_encoding("cl100k_base")
+
+
+def _as_dict(maybe_mapping: Any) -> Dict[str, Any]:
+    """Best-effort conversion of possibly-None/Mapping-ish values into a dict.
+
+    We occasionally see libraries return `headers=None` or other mapping-like objects.
+    This helper keeps the ingestion pipeline resilient.
+    """
+    if not maybe_mapping:
+        return {}
+    if isinstance(maybe_mapping, dict):
+        return maybe_mapping
+    try:
+        return dict(maybe_mapping)
+    except Exception:
+        return {}
+
+
+def _looks_like_html(raw: bytes) -> bool:
+    head = (raw or b"")[:4096].lstrip().lower()
+    return head.startswith(b"<!doctype") or b"<html" in head
 
 
 # -----------------------
@@ -122,37 +164,336 @@ def read_file_url(file_url: str) -> Tuple[bytes, dict]:
     return data, meta
 
 
+
+class PlaywrightFetcher:
+    """Lightweight, reusable Playwright fetcher for JS-rendered pages.
+
+    We keep a single browser instance per ingestion run and create a fresh context per URL.
+    """
+
+    def __init__(self, enabled: bool) -> None:
+        self.enabled = bool(enabled) and sync_playwright is not None
+        self._p = None
+        self._browser = None
+
+    def __enter__(self):
+        if self.enabled:
+            self._p = sync_playwright().start()
+            # Chromium tends to be the most compatible choice for campus websites.
+            self._browser = self._p.chromium.launch(headless=True)
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        self.close()
+        return False
+
+    def close(self) -> None:
+        try:
+            if self._browser:
+                self._browser.close()
+        except Exception:
+            pass
+        try:
+            if self._p:
+                self._p.stop()
+        except Exception:
+            pass
+        self._browser = None
+        self._p = None
+
+    def fetch_html(self, url: str) -> Tuple[bytes, dict]:
+        if not self.enabled or self._browser is None:
+            raise RuntimeError("Playwright is not enabled/available")
+
+        start = time.time()
+        ctx = self._browser.new_context(user_agent=USER_AGENT)
+        page = ctx.new_page()
+        resp = None
+        try:
+            resp = page.goto(url, wait_until=PLAYWRIGHT_WAIT_UNTIL, timeout=PLAYWRIGHT_NAV_TIMEOUT_MS)
+
+            # Many pages render key content into <main>.
+            try:
+                page.wait_for_selector("main", timeout=3000)
+            except Exception:
+                pass
+
+            if PLAYWRIGHT_EXPAND_ACCORDIONS:
+                # Best-effort: expand common accordion patterns before extracting.
+                js = """() => {
+                  try {
+                    document.querySelectorAll('details').forEach(d => d.setAttribute('open',''));
+                  } catch (e) {}
+                  const btns = Array.from(document.querySelectorAll('[aria-expanded="false"]'))
+                    .filter(el => (el.tagName === 'BUTTON' || el.getAttribute('role') === 'button'));
+                  for (const b of btns) {
+                    try { b.click(); } catch (e) {}
+                  }
+                }"""
+                try:
+                    page.evaluate(js)
+                    page.wait_for_timeout(400)
+                except Exception:
+                    pass
+
+            html = page.content()
+            final_url = page.url
+            status_code = int(resp.status) if resp is not None else 200
+            headers = dict(resp.headers) if resp is not None else {}
+            duration_ms = int((time.time() - start) * 1000)
+            meta = {"final_url": final_url, "status_code": status_code, "headers": headers, "duration_ms": duration_ms}
+            return html.encode("utf-8", errors="ignore"), meta
+        finally:
+            try:
+                ctx.close()
+            except Exception:
+                pass
+
+
+def _truncate(s: str, n: int = 500) -> str:
+    s = s or ""
+    return s if len(s) <= n else s[:n] + "…"
+
+
+def _classify_exception(e: Exception) -> str:
+    if isinstance(e, requests.exceptions.Timeout):
+        return "timeout"
+    if isinstance(e, requests.exceptions.ConnectionError):
+        return "connection_error"
+    if isinstance(e, requests.exceptions.HTTPError):
+        return "http_error"
+    if isinstance(e, PlaywrightTimeoutError):
+        return "playwright_timeout"
+    if isinstance(e, requests.exceptions.RequestException):
+        return "request_error"
+    return e.__class__.__name__
+
+
+def fetch_remote_with_fallback(
+    url: str,
+    *,
+    etag: Optional[str] = None,
+    last_modified: Optional[str] = None,
+    pw: Optional[PlaywrightFetcher] = None,
+) -> dict:
+    """Fetch a remote URL, optionally using Playwright for JS-heavy pages.
+
+    Returns a dict with keys:
+      - raw: Optional[bytes]
+      - status_code: int
+      - final_url: str
+      - headers: dict
+      - fetcher: 'requests' | 'playwright'
+      - parsed_title/parsed_text: optional, for HTML pages
+      - extracted_chars: optional
+      - duration_ms: int
+    """
+
+    started = time.time()
+
+    def _make_result(*, raw: Optional[bytes], status_code: int, final_url: str, headers: dict, fetcher: str,
+                     parsed_title: Optional[str] = None, parsed_text: Optional[str] = None,
+                     extracted_chars: Optional[int] = None, note: Optional[str] = None) -> dict:
+        duration_ms = int((time.time() - started) * 1000)
+        out = {
+            "raw": raw,
+            "status_code": int(status_code),
+            "final_url": final_url,
+            "headers": dict(headers or {}),
+            "fetcher": fetcher,
+            "duration_ms": duration_ms,
+        }
+        if parsed_title is not None:
+            out["parsed_title"] = parsed_title
+        if parsed_text is not None:
+            out["parsed_text"] = parsed_text
+        if extracted_chars is not None:
+            out["extracted_chars"] = int(extracted_chars)
+        if note:
+            out["note"] = note
+        return out
+
+    # If configured, go straight to Playwright for HTML pages (slow but reliable).
+    if INGEST_USE_PLAYWRIGHT and INGEST_PLAYWRIGHT_ALWAYS and pw and pw.enabled and not url.lower().endswith(".pdf"):
+        raw_pw, meta_pw = pw.fetch_html(url)
+        meta_pw = meta_pw or {}
+        headers_pw = meta_pw.get("headers") or {}
+        # Playwright/servers sometimes vary header casing.
+        ctype = headers_pw.get("content-type") or headers_pw.get("Content-Type") or ""
+        final_url = meta_pw.get("final_url") or url
+        # Pre-parse HTML to reuse later
+        title, text = clean_html(raw_pw.decode("utf-8", errors="ignore"), final_url)
+        return _make_result(
+            raw=raw_pw,
+            status_code=int(meta_pw.get("status_code") or 200),
+            final_url=final_url,
+            headers=headers_pw or {"Content-Type": ctype},
+            fetcher="playwright",
+            parsed_title=title,
+            parsed_text=text,
+            extracted_chars=len(text),
+            note="playwright_always",
+        )
+
+    # Default: requests first
+    try:
+        raw, resp = fetch_http(url, etag=etag, last_modified=last_modified)
+        if resp.status_code == 304:
+            return _make_result(raw=None, status_code=304, final_url=resp.url, headers=resp.headers, fetcher="requests", note="not_modified")
+
+        assert raw is not None
+        cth = resp.headers.get("Content-Type", "")
+        final_url = resp.url
+
+        # Decide whether we should render with Playwright.
+        wants_playwright = False
+        parsed_title = parsed_text = None
+        extracted_chars = None
+
+        if INGEST_USE_PLAYWRIGHT and INGEST_PLAYWRIGHT_FALLBACK and pw and pw.enabled:
+            # Only attempt for likely-HTML.
+            if guess_type_from_url(final_url, cth) == "html":
+                try:
+                    parsed_title, parsed_text = clean_html(raw.decode("utf-8", errors="ignore"), final_url)
+                    extracted_chars = len(parsed_text)
+                    if extracted_chars < INGEST_MIN_EXTRACTED_CHARS:
+                        wants_playwright = True
+                    # Heuristic: common JS-required interstitials
+                    low = raw[:20000].decode("utf-8", errors="ignore").lower()
+                    if "enable javascript" in low or "please enable javascript" in low:
+                        wants_playwright = True
+                except Exception:
+                    # If parsing fails, try Playwright as a last resort.
+                    wants_playwright = True
+
+        if wants_playwright:
+            try:
+                raw_pw, meta_pw = pw.fetch_html(url)
+                meta_pw = meta_pw or {}
+                headers_pw = meta_pw.get("headers") or {}
+                final_pw = meta_pw.get("final_url") or url
+                title_pw, text_pw = clean_html(raw_pw.decode("utf-8", errors="ignore"), final_pw)
+                if len(text_pw) >= (extracted_chars or 0):
+                    return _make_result(
+                        raw=raw_pw,
+                        status_code=int(meta_pw.get("status_code") or 200),
+                        final_url=final_pw,
+                        headers=headers_pw,
+                        fetcher="playwright",
+                        parsed_title=title_pw,
+                        parsed_text=text_pw,
+                        extracted_chars=len(text_pw),
+                        note="playwright_fallback",
+                    )
+            except Exception:
+                # If fallback fails, keep requests result but annotate via note.
+                pass
+
+        return _make_result(
+            raw=raw,
+            status_code=resp.status_code,
+            final_url=final_url,
+            headers=resp.headers,
+            fetcher="requests",
+            parsed_title=parsed_title,
+            parsed_text=parsed_text,
+            extracted_chars=extracted_chars,
+        )
+
+    except requests.exceptions.RequestException as e:
+        # Requests failed (timeout, 403, etc). Try Playwright once if enabled.
+        if INGEST_USE_PLAYWRIGHT and INGEST_PLAYWRIGHT_FALLBACK and pw and pw.enabled and not url.lower().endswith(".pdf"):
+            raw_pw, meta_pw = pw.fetch_html(url)
+            meta_pw = meta_pw or {}
+            headers_pw = meta_pw.get("headers") or {}
+            final_pw = meta_pw.get("final_url") or url
+            title_pw, text_pw = clean_html(raw_pw.decode("utf-8", errors="ignore"), final_pw)
+            return _make_result(
+                raw=raw_pw,
+                status_code=int(meta_pw.get("status_code") or 200),
+                final_url=final_pw,
+                headers=headers_pw,
+                fetcher="playwright",
+                parsed_title=title_pw,
+                parsed_text=text_pw,
+                extracted_chars=len(text_pw),
+                note=f"playwright_after_requests_error:{_classify_exception(e)}",
+            )
+        raise
+
 # -----------------------
 # Parsers
 # -----------------------
 
-def clean_html(html: str, base_url: str) -> Tuple[str, str]:
-    """Extract readable text from HTML while stripping common page chrome."""
-    soup = BeautifulSoup(html, "lxml")
-
-    for sel in ["nav", "footer", "aside", "script", "style", "noscript", "form"]:
-        for tag in soup.find_all(sel):
-            tag.decompose()
-
-    noisy = ["cookie", "banner", "subscribe", "social", "share", "breadcrumb", "sidebar", "search"]
-    for tag in soup.find_all(True):
-        classes = " ".join(tag.get("class", []))
-        ident = (tag.get("id") or "")
-        if any(k in classes.lower() or k in ident.lower() for k in noisy):
-            tag.decompose()
-
+def _naive_html_to_text(html: str, base_url: str) -> Tuple[str, str]:
+    """Very defensive HTML->text fallback (no DOM assumptions)."""
+    # Title (best effort)
+    m = re.search(r"<title[^>]*>(.*?)</title>", html, flags=re.IGNORECASE | re.DOTALL)
     title_text = None
-    if soup.title and soup.title.string:
-        try:
-            title_text = soup.title.string.strip()
-        except Exception:
-            title_text = None
-    title = title_text or (urllib.parse.urlparse(base_url).path.strip("/") or "Untitled")
+    if m:
+        title_text = re.sub(r"\s+", " ", m.group(1)).strip()
 
-    main = soup.find("main") or soup.body or soup
-    text = main.get_text("\n", strip=True)
-    text = re.sub(r"\n{3,}", "\n\n", text)
-    return title, text
+    # Drop script/style/noscript blocks, then strip tags.
+    cleaned = re.sub(r"<script[^>]*>.*?</script>", " ", html, flags=re.IGNORECASE | re.DOTALL)
+    cleaned = re.sub(r"<style[^>]*>.*?</style>", " ", cleaned, flags=re.IGNORECASE | re.DOTALL)
+    cleaned = re.sub(r"<noscript[^>]*>.*?</noscript>", " ", cleaned, flags=re.IGNORECASE | re.DOTALL)
+    cleaned = re.sub(r"<[^>]+>", " ", cleaned)
+    cleaned = htmlmod.unescape(cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    cleaned = cleaned.replace(" ", " ")
+
+    title = title_text or (urllib.parse.urlparse(base_url).path.strip("/") or "Untitled")
+    return title, cleaned
+
+
+def clean_html(html: str, base_url: str) -> Tuple[str, str]:
+    """Extract readable text from HTML while stripping common page chrome.
+
+    This should never raise: if parsing fails for any reason, we fall back to a
+    very naive tag-stripper to keep ingestion moving.
+    """
+    try:
+        soup = BeautifulSoup(html, "lxml")
+
+        for sel in ["nav", "footer", "aside", "script", "style", "noscript", "form"]:
+            for tag in soup.find_all(sel):
+                tag.decompose()
+
+        noisy = ["cookie", "banner", "subscribe", "social", "share", "breadcrumb", "sidebar", "search"]
+        for tag in soup.find_all(True):
+            # Defensive: some parsers / malformed markup can yield unexpected nodes.
+            if not hasattr(tag, "get"):
+                continue
+            try:
+                cls_val = tag.get("class") or []
+                if isinstance(cls_val, (list, tuple)):
+                    classes = " ".join(str(x) for x in cls_val)
+                else:
+                    classes = str(cls_val)
+                ident = str(tag.get("id") or "")
+            except Exception:
+                continue
+
+            if any(k in classes.lower() or k in ident.lower() for k in noisy):
+                try:
+                    tag.decompose()
+                except Exception:
+                    pass
+
+        title_text = None
+        if soup.title and soup.title.string:
+            try:
+                title_text = soup.title.string.strip()
+            except Exception:
+                title_text = None
+        title = title_text or (urllib.parse.urlparse(base_url).path.strip("/") or "Untitled")
+
+        main = soup.find("main") or soup.body or soup
+        text = main.get_text("\n", strip=True)
+        text = re.sub(r"\n{3,}", "\n\n", text)
+        return title, text
+    except Exception:
+        return _naive_html_to_text(html, base_url)
 
 
 def extract_text_from_pdf(content: bytes) -> str:
@@ -260,8 +601,12 @@ def update_target_status(
     next_crawl_at: Optional[datetime] = None,
     set_last_crawled: bool = True,
     set_last_ingested: bool = False,
+    meta_patch: Optional[dict] = None,
 ) -> None:
-    """Update crawl_targets row after a crawl/ingest attempt."""
+    """Update a crawl_targets row after a crawl/ingest attempt.
+
+    We merge meta_patch into the existing meta JSONB so crawler reasons and ingest diagnostics coexist.
+    """
     cur.execute(
         """
         UPDATE crawl_targets
@@ -273,6 +618,7 @@ def update_target_status(
             content_bytes=COALESCE(%s, content_bytes),
             error=%s,
             next_crawl_at=%s,
+            meta = COALESCE(meta, '{}'::jsonb) || %s::jsonb,
             last_crawled_at=CASE WHEN %s THEN NOW() ELSE last_crawled_at END,
             last_ingested_at=CASE WHEN %s THEN NOW() ELSE last_ingested_at END,
             updated_at=NOW()
@@ -287,6 +633,7 @@ def update_target_status(
             content_bytes,
             error,
             next_crawl_at,
+            Json(meta_patch or {}),
             set_last_crawled,
             set_last_ingested,
             target_id,
@@ -384,21 +731,42 @@ def ingest_html_or_pdf(
     last_modified: Optional[str],
     *,
     replace_chunks: bool = True,
-) -> Tuple[int, bool]:
-    """Ingest an HTML/PDF document, returning (chunks_added, content_changed)."""
+    requested_url: Optional[str] = None,
+    fetcher: str = "requests",
+    parsed_title: Optional[str] = None,
+    parsed_text: Optional[str] = None,
+) -> Tuple[int, bool, int]:
+    """Ingest an HTML/PDF document.
+
+    Returns (chunks_added, content_changed, extracted_chars).
+
+    Note: parsed_title/parsed_text are optional pre-parsed results (used to avoid parsing twice
+    when we already inspected the page to decide whether to use Playwright).
+    """
     ctype = guess_type_from_url(final_url, content_type_header)
+
     if ctype == "pdf":
         text = extract_text_from_pdf(raw)
         title = final_url.split("/")[-1] or "PDF"
         content_type = "pdf"
     else:
-        title, text = clean_html(raw.decode("utf-8", errors="ignore"), final_url)
+        if parsed_title is not None and parsed_text is not None:
+            title, text = parsed_title, parsed_text
+        else:
+            title, text = clean_html(raw.decode("utf-8", errors="ignore"), final_url)
         content_type = "html"
 
+    extracted_chars = len(text)
+    extracted_tokens = approx_token_len(text) if text else 0
+
     meta = {
+        "requested_url": requested_url or final_url,
         "final_url": final_url,
+        "fetcher": fetcher,
         "headers": {"Content-Type": content_type_header, "ETag": etag, "Last-Modified": last_modified},
+        "extracted": {"chars": extracted_chars, "tokens": extracted_tokens},
     }
+
     content_bytes = len(raw)
     content_sha1 = sha1_bytes(raw)
 
@@ -419,14 +787,14 @@ def ingest_html_or_pdf(
 
     # If content didn't change, keep existing chunks to avoid needless churn.
     if existing_id is not None and not changed:
-        return 0, False
+        return 0, False, extracted_chars
 
     if replace_chunks:
         delete_chunks_for_source(cur, source_id)
 
     sections = list(chunk_text(text))
     if not sections:
-        return 0, changed
+        return 0, changed, extracted_chars
 
     embs = embed_texts(sections)
     inserted = 0
@@ -435,7 +803,8 @@ def ingest_html_or_pdf(
         insert_chunk(cur, source_id, final_url, section=None, chunk_text_=chunk_str, tokens=tokens, embedding=emb)
         inserted += 1
 
-    return inserted, changed
+    return inserted, changed, extracted_chars
+
 
 
 def ingest_tabular(
@@ -505,7 +874,7 @@ def ingest_tabular(
     return inserted, changed
 
 
-def ingest_entry(cur, entry: dict) -> Tuple[int, bool]:
+def ingest_entry(cur, entry: dict, pw: Optional[PlaywrightFetcher] = None) -> Tuple[int, bool]:
     """Ingest a single entry dict and return (chunks_added, content_changed)."""
     url = entry["url"]
 
@@ -522,7 +891,7 @@ def ingest_entry(cur, entry: dict) -> Tuple[int, bool]:
             )
 
         raw, meta = read_file_url(url)
-        return ingest_html_or_pdf(
+        added, changed, _chars = ingest_html_or_pdf(
             cur,
             raw,
             final_url=url,
@@ -530,7 +899,10 @@ def ingest_entry(cur, entry: dict) -> Tuple[int, bool]:
             status_code=int(meta.get("status_code", 200)),
             etag=None,
             last_modified=None,
+            requested_url=url,
+            fetcher="file",
         )
+        return added, changed
 
     # Remote
     if entry.get("type") == "tabular":
@@ -544,23 +916,34 @@ def ingest_entry(cur, entry: dict) -> Tuple[int, bool]:
             url_col=entry.get("url_col", "SourceURL"),
         )
 
-    raw, resp = fetch_http(url, etag=entry.get("etag"), last_modified=entry.get("last_modified"))
+    res = fetch_remote_with_fallback(
+        url,
+        etag=entry.get("etag"),
+        last_modified=entry.get("last_modified"),
+        pw=pw,
+    )
 
     # Conditional fetch hit: nothing changed.
-    if resp.status_code == 304:
+    if res["status_code"] == 304:
         return 0, False
 
+    raw = res["raw"]
     assert raw is not None
-    cth = resp.headers.get("Content-Type", "")
-    return ingest_html_or_pdf(
+
+    added, changed, _chars = ingest_html_or_pdf(
         cur,
         raw,
-        final_url=resp.url,
-        content_type_header=cth,
-        status_code=resp.status_code,
-        etag=resp.headers.get("ETag"),
-        last_modified=resp.headers.get("Last-Modified"),
+        final_url=res["final_url"],
+        content_type_header=(res.get("headers") or {}).get("Content-Type", (res.get("headers") or {}).get("content-type", "")),
+        status_code=int(res["status_code"]),
+        etag=(res.get("headers") or {}).get("ETag"),
+        last_modified=(res.get("headers") or {}).get("Last-Modified"),
+        requested_url=url,
+        fetcher=res.get("fetcher", "requests"),
+        parsed_title=res.get("parsed_title"),
+        parsed_text=res.get("parsed_text"),
     )
+    return added, changed
 
 
 # -----------------------
@@ -602,15 +985,16 @@ def run_yaml_mode(cur, allowlist_path: str, sleep_seconds: float) -> None:
         return
 
     total = 0
-    for ent in entries:
-        try:
-            print(f"Ingesting: {ent['url']} (type={ent.get('type')})")
-            added, changed = ingest_entry(cur, ent)
-            total += added
-            print(f"  -> {added} chunks (changed={changed})")
-        except Exception as e:
-            raise RuntimeError(f"Failed ingest for {ent['url']}: {e}") from e
-        time.sleep(sleep_seconds)
+    with PlaywrightFetcher(INGEST_USE_PLAYWRIGHT) as pw:
+        for ent in entries:
+            try:
+                print(f"Ingesting: {ent['url']} (type={ent.get('type')})")
+                added, changed = ingest_entry(cur, ent, pw=pw)
+                total += added
+                print(f"  -> {added} chunks (changed={changed})")
+            except Exception as e:
+                raise RuntimeError(f"Failed ingest for {ent['url']}: {e}") from e
+            time.sleep(sleep_seconds)
 
     print(f"Done. Total chunks added this run: {total}")
 
@@ -633,108 +1017,213 @@ def run_db_mode(cur, profile_name: str, limit: int, sleep_seconds: float) -> Non
     skipped = 0
     failed = 0
 
-    for ent in selected:
-        target_id = ent["crawl_target_id"]
-        url = ent["url"]
-        try:
-            update_target_status(cur, target_id, status="queued", error=None, set_last_crawled=False)
-            print(f"Ingesting (db): {url}")
+    with PlaywrightFetcher(INGEST_USE_PLAYWRIGHT) as pw:
+        if INGEST_USE_PLAYWRIGHT and sync_playwright is None:
+            print("WARNING: INGEST_USE_PLAYWRIGHT=true but Playwright is not installed; proceeding without JS rendering")
 
-            # Fetch with conditional headers so unchanged pages are cheap.
-            raw, resp = fetch_http(url, etag=ent.get("etag"), last_modified=ent.get("last_modified"))
+        for ent in selected:
+            target_id = ent["crawl_target_id"]
+            url = ent["url"]
+            started = time.time()
 
-            # Conditional fetch hit: nothing changed.
-            if resp.status_code == 304:
-                skipped += 1
+            # Cheap guardrail: some pages contain email addresses in the path (often not real content pages)
+            # e.g. /contact/name@torontomu.ca. These almost always 404 and just add noise.
+            try:
+                if "@" in (urllib.parse.urlparse(url).path or ""):
+                    skipped += 1
+                    update_target_status(
+                        cur,
+                        target_id,
+                        status="blocked",
+                        error="blocked:email_in_path",
+                        set_last_crawled=False,
+                        set_last_ingested=False,
+                        meta_patch={
+                            "reason": "email_in_path",
+                            "last_ingest": {
+                                "requested_url": url,
+                                "stage": "blocked",
+                                "note": "email_in_path",
+                                "at": datetime.now(timezone.utc).isoformat(),
+                            },
+                        },
+                    )
+                    print(f"Blocked (email-like URL): {url}")
+                    time.sleep(sleep_seconds)
+                    continue
+            except Exception:
+                # Never fail ingestion because of this guardrail.
+                pass
+
+            try:
                 update_target_status(
                     cur,
                     target_id,
-                    status="crawled",
-                    http_status=304,
-                    etag=resp.headers.get("ETag") or ent.get("etag"),
-                    last_modified=resp.headers.get("Last-Modified") or ent.get("last_modified"),
+                    status="queued",
                     error=None,
-                    set_last_crawled=True,
-                    set_last_ingested=False,
+                    set_last_crawled=False,
+                    meta_patch={"last_ingest": {"stage": "queued", "requested_url": url, "at": datetime.now(timezone.utc).isoformat()}},
                 )
-                print("  -> 304 Not Modified")
-                time.sleep(sleep_seconds)
-                continue
 
-            assert raw is not None
-            final_url = resp.url
-            cth = resp.headers.get("Content-Type", "")
+                print(f"Ingesting (db): {url}")
 
-            added, changed = ingest_html_or_pdf(
-                cur,
-                raw,
-                final_url=final_url,
-                content_type_header=cth,
-                status_code=resp.status_code,
-                etag=resp.headers.get("ETag"),
-                last_modified=resp.headers.get("Last-Modified"),
-            )
+                res = fetch_remote_with_fallback(
+                    url,
+                    etag=ent.get("etag"),
+                    last_modified=ent.get("last_modified"),
+                    pw=pw,
+                )
 
-            # Keep crawl_targets fresh with change detection signals.
-            content_sha1 = sha1_bytes(raw)
-            content_bytes = len(raw)
+                # Conditional fetch hit: nothing changed.
+                if res["status_code"] == 304:
+                    skipped += 1
+                    update_target_status(
+                        cur,
+                        target_id,
+                        status="crawled",
+                        http_status=304,
+                        etag=(res.get("headers") or {}).get("ETag") or ent.get("etag"),
+                        last_modified=(res.get("headers") or {}).get("Last-Modified") or ent.get("last_modified"),
+                        error=None,
+                        set_last_crawled=True,
+                        set_last_ingested=False,
+                        meta_patch={
+                            "last_ingest": {
+                                "requested_url": url,
+                                "final_url": res.get("final_url", url),
+                                "fetcher": res.get("fetcher", "requests"),
+                                "http_status": 304,
+                                "duration_ms": res.get("duration_ms"),
+                                "note": res.get("note"),
+                                "at": datetime.now(timezone.utc).isoformat(),
+                            }
+                        },
+                    )
+                    print("  -> 304 Not Modified")
+                    time.sleep(sleep_seconds)
+                    continue
 
-            if changed:
-                ingested += 1
+                raw = res["raw"]
+                assert raw is not None
+
+                final_url = res.get("final_url") or url
+                headers = res.get("headers") or {}
+                cth = headers.get("Content-Type", headers.get("content-type", ""))
+
+                added, changed, extracted_chars = ingest_html_or_pdf(
+                    cur,
+                    raw,
+                    final_url=final_url,
+                    content_type_header=cth,
+                    status_code=int(res["status_code"]),
+                    etag=headers.get("ETag"),
+                    last_modified=headers.get("Last-Modified"),
+                    requested_url=url,
+                    fetcher=res.get("fetcher", "requests"),
+                    parsed_title=res.get("parsed_title"),
+                    parsed_text=res.get("parsed_text"),
+                )
+
+                # Keep crawl_targets fresh with change detection signals.
+                content_sha1 = sha1_bytes(raw)
+                content_bytes = len(raw)
+
+                status = "ingested" if changed else "crawled"
+                if changed:
+                    ingested += 1
+                else:
+                    skipped += 1
+
                 update_target_status(
                     cur,
                     target_id,
-                    status="ingested",
-                    http_status=resp.status_code,
-                    etag=resp.headers.get("ETag"),
-                    last_modified=resp.headers.get("Last-Modified"),
+                    status=status,
+                    http_status=int(res["status_code"]),
+                    etag=headers.get("ETag"),
+                    last_modified=headers.get("Last-Modified"),
                     content_sha1=content_sha1,
                     content_bytes=content_bytes,
                     error=None,
                     set_last_crawled=True,
-                    set_last_ingested=True,
+                    set_last_ingested=bool(changed),
+                    meta_patch={
+                        "last_ingest": {
+                            "requested_url": url,
+                            "final_url": final_url,
+                            "fetcher": res.get("fetcher", "requests"),
+                            "http_status": int(res["status_code"]),
+                            "content_type": cth,
+                            "content_bytes": content_bytes,
+                            "extracted_chars": int(extracted_chars),
+                            "duration_ms": res.get("duration_ms"),
+                            "note": res.get("note"),
+                            "stage": status,
+                            "at": datetime.now(timezone.utc).isoformat(),
+                        }
+                    },
                 )
-            else:
-                skipped += 1
+
+                print(f"  -> {added} chunks (changed={changed}, extracted_chars={extracted_chars})")
+
+            except Exception as e:
+                failed += 1
+
+                # Increment retries and compute backoff.
+                cur.execute("SELECT retries FROM crawl_targets WHERE id=%s", (target_id,))
+                rrow = cur.fetchone()
+                retries = int(rrow[0]) + 1 if rrow else 1
+                next_at = backoff_after_failure(retries)
+                cur.execute("UPDATE crawl_targets SET retries=%s WHERE id=%s", (retries, target_id))
+
+                # Best-effort extract status code if this was an HTTPError.
+                http_status = None
+                if isinstance(e, requests.exceptions.HTTPError) and getattr(e, "response", None) is not None:
+                    try:
+                        http_status = int(e.response.status_code)
+                    except Exception:
+                        http_status = None
+
+                err_type = _classify_exception(e)
                 update_target_status(
                     cur,
                     target_id,
-                    status="crawled",
-                    http_status=resp.status_code,
-                    etag=resp.headers.get("ETag"),
-                    last_modified=resp.headers.get("Last-Modified"),
-                    content_sha1=content_sha1,
-                    content_bytes=content_bytes,
-                    error=None,
+                    status="failed",
+                    http_status=http_status,
+                    error=_truncate(str(e), 1000),
+                    next_crawl_at=next_at,
                     set_last_crawled=True,
                     set_last_ingested=False,
+                    meta_patch={
+                        "last_ingest": {
+                            "requested_url": url,
+                            "error_type": err_type,
+                            "error": _truncate(str(e), 1000),
+                            "http_status": http_status,
+                            "duration_ms": int((time.time() - started) * 1000),
+                            "stage": "failed",
+                            "at": datetime.now(timezone.utc).isoformat(),
+                        }
+                    },
                 )
+                print(f"Failed: {url} ({err_type}: {e})")
+                if os.environ.get("INGEST_TRACEBACK", "0") == "1":
+                    import traceback
 
-            print(f"  -> {added} chunks (changed={changed})")
+                    traceback.print_exc()
 
-        except Exception as e:
-            failed += 1
-            # Increment retries and compute backoff.
-            cur.execute("SELECT retries FROM crawl_targets WHERE id=%s", (target_id,))
-            rrow = cur.fetchone()
-            retries = int(rrow[0]) + 1 if rrow else 1
-            next_at = backoff_after_failure(retries)
-            cur.execute("UPDATE crawl_targets SET retries=%s WHERE id=%s", (retries, target_id))
-            update_target_status(
-                cur,
-                target_id,
-                status="failed",
-                error=str(e)[:1000],
-                next_crawl_at=next_at,
-                set_last_crawled=True,
-                set_last_ingested=False,
-            )
-            print(f"Failed: {url} ({e})")
+            time.sleep(sleep_seconds)
 
-        time.sleep(sleep_seconds)
-
-    finish_ingest_run(cur, run_id, selected=len(selected), ingested=ingested, skipped=skipped, failed=failed, meta={"profile": profile_name})
+    finish_ingest_run(
+        cur,
+        run_id,
+        selected=len(selected),
+        ingested=ingested,
+        skipped=skipped,
+        failed=failed,
+        meta={"profile": profile_name},
+    )
     print(f"Done. selected={len(selected)} ingested={ingested} skipped={skipped} failed={failed}")
+
 
 
 def main() -> None:

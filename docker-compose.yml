@@ -140,6 +140,12 @@ services:
       INGEST_MODE: db
       CRAWL_PROFILE: arts
       INGEST_LIMIT: 200
+      # Playwright (JS-rendering) ingestion options
+      INGEST_USE_PLAYWRIGHT: ${INGEST_USE_PLAYWRIGHT:-true}
+      INGEST_PLAYWRIGHT_ALWAYS: ${INGEST_PLAYWRIGHT_ALWAYS:-false}
+      INGEST_PLAYWRIGHT_FALLBACK: ${INGEST_PLAYWRIGHT_FALLBACK:-true}
+      INGEST_MIN_EXTRACTED_CHARS: ${INGEST_MIN_EXTRACTED_CHARS:-400}
+      PLAYWRIGHT_EXPAND_ACCORDIONS: ${PLAYWRIGHT_EXPAND_ACCORDIONS:-true}
     depends_on:
       pg:
         condition: service_healthy
@@ -160,6 +166,12 @@ services:
       CRAWL_RPS: 1.0
       CRAWL_ENABLE_SITEMAPS: "true"
       INGEST_LIMIT: 200
+      # Playwright (JS-rendering) ingestion options
+      INGEST_USE_PLAYWRIGHT: ${INGEST_USE_PLAYWRIGHT:-true}
+      INGEST_PLAYWRIGHT_ALWAYS: ${INGEST_PLAYWRIGHT_ALWAYS:-false}
+      INGEST_PLAYWRIGHT_FALLBACK: ${INGEST_PLAYWRIGHT_FALLBACK:-true}
+      INGEST_MIN_EXTRACTED_CHARS: ${INGEST_MIN_EXTRACTED_CHARS:-400}
+      PLAYWRIGHT_EXPAND_ACCORDIONS: ${PLAYWRIGHT_EXPAND_ACCORDIONS:-true}
     depends_on:
       pg:
         condition: service_healthy
