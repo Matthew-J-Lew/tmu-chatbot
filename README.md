@@ -206,10 +206,7 @@ curl -s http://localhost:8000/api/chat   -H "Content-Type: application/json"   -
 
 ### Ask a question (Windows PowerShell)
 ```powershell
-Invoke-RestMethod -Method Post -Uri "http://localhost:8000/api/chat" `
-  -ContentType "application/json" `
-  -Body (@{question="How many undergraduate programs are there in the faculty of arts? Can you list them all?"} | ConvertTo-Json) `
-| ConvertTo-Json -Depth 10
+Invoke-RestMethod -Method Post -Uri "http://localhost:8000/api/chat" ` -ContentType "application/json" ` -Body (@{question="How many undergraduate programs are there in the faculty of arts? Can you list them all?"} | ConvertTo-Json) ` | ConvertTo-Json -Depth 10
 ```
 
 ### What you get back

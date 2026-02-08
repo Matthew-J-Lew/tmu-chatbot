@@ -301,7 +301,11 @@ async def chat_stream(req: ChatRequest):
     cached_resp = await cache_get_json(resp_key)
     if cached_resp and "answer" in cached_resp:
         async def _cached_iter():
-            yield cached_resp["answer"]
+            # Safety: ensure cached responses are also redacted.
+            # (The non-streaming endpoint already redacts, but this keeps
+            # the streaming path consistent if the cache is ever populated
+            # by another caller.)
+            yield redact_pii(str(cached_resp["answer"]))
         return StreamingResponse(_cached_iter(), media_type="text/plain")
 
     pool = get_pool()
