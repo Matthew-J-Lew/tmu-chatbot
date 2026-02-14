@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>TMU Arts Chatbot Widget Demo (v1)</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 24px; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+    .panel { border: 1px solid rgba(0,0,0,0.12); border-radius: 12px; padding: 14px; }
+    h2 { margin: 0 0 8px 0; font-size: 16px; }
+    code { background: rgba(0,0,0,0.06); padding: 2px 6px; border-radius: 6px; }
+  </style>
+</head>
+<body>
+  <h1 style="margin-top:0">TMU Arts Chatbot Widget Demo</h1>
+  <p>
+    This page is served from the API container at <code>/widget/v1/demo.html</code>.
+    The widget should appear as a small chat bubble in the bottom-right corner.
+    Click it to open the chat panel.
+  </p>
+
+  <!-- Load the widget bundle first (no defer, since we init immediately after). -->
+  <script src="./widget.js"></script>
+  <script>
+    // NOTE: In docker compose, the API is typically http://localhost:8000
+    // For production, set apiBaseUrl to your deployed API origin.
+    const apiBaseUrl = window.location.origin;
+
+    // Demo: Admin mode with debug drawers enabled.
+    // (If you want public mode, set mode:'public' and remove enableDebug.)
+    window.TMUChatbot.init({
+      apiBaseUrl,
+      mode: 'public',
+      title: 'TMU Arts Chat (Admin)',
+      enableCitations: true,
+      enableDebug: true,
+      defaultParams: { top_k: 6, num_candidates: 20 },
+      initialPrompt: 'Admin mode: ask a question, then open the Debug drawer on the assistant message.'
+    });
+  </script>
+</body>
+</html>

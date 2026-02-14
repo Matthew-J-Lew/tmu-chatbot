@@ -218,6 +218,55 @@ A JSON response containing:
 
 ---
 
+## Web widget (v1)
+
+The API serves a **dependency-free, embeddable web widget** at:
+- `GET /widget/v1/widget.js`
+
+There is also a simple demo page (useful for smoke testing):
+- `GET /widget/v1/demo.html`
+
+### Embed via script tag
+
+```html
+<div id="tmu-arts-chat"></div>
+
+<script src="https://YOUR_API_HOST/widget/v1/widget.js" defer></script>
+<script>
+  window.TMUChatbot.init({
+    container: '#tmu-arts-chat',
+    apiBaseUrl: 'https://YOUR_API_HOST',
+    mode: 'public',
+    title: 'TMU Arts Chat',
+    enableCitations: true,
+    initialPrompt: "Hi! Ask me anything about TMU Faculty of Arts. I'll cite official sources when available."
+  });
+</script>
+```
+
+### Admin/debug mode
+
+Admin mode uses `POST /admin/tools/chat` and enables a per-message debug drawer (intent + retrieval details):
+
+```html
+<div id="tmu-arts-chat-admin"></div>
+
+<script src="https://YOUR_API_HOST/widget/v1/widget.js" defer></script>
+<script>
+  window.TMUChatbot.init({
+    container: '#tmu-arts-chat-admin',
+    apiBaseUrl: 'https://YOUR_API_HOST',
+    mode: 'admin',
+    title: 'TMU Arts Chat (Admin)',
+    enableCitations: true,
+    enableDebug: true,
+    defaultParams: { top_k: 6, num_candidates: 20 }
+  });
+</script>
+```
+
+---
+
 ## Debug / inspection tools
 
 Open a shell in the API container:

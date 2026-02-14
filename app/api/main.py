@@ -28,7 +28,10 @@ import asyncio
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+
+from pathlib import Path
 
 from app.api.config import (
     RAG_TOP_K,
@@ -39,6 +42,10 @@ from app.api.config import (
     CACHE_TTL_RETRIEVAL,
     MAX_CONCURRENT_LLM,
     CORS_ALLOW_ORIGINS,
+    RERANK_ENABLED,
+    LLM_PROVIDER,
+    OLLAMA_MODEL,
+    AZURE_OPENAI_DEPLOYMENT,
 )
 from app.api.db import init_db_pool, close_db_pool, get_pool
 from app.api.cache import init_redis, close_redis, make_cache_key, cache_get_json, cache_set_json
@@ -54,9 +61,43 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ALLOW_ORIGINS,
     allow_credentials=True,
-    allow_methods=["POST"],
+    # NOTE: allow GET so the widget JS can be loaded cross-origin if needed.
+    allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
 )
+
+
+def _find_widget_dir() -> Path:
+    """Locate app/frontend/widget in both dev and Docker layouts.
+
+    This repo runs FastAPI in Docker by copying app/api/main.py to /app/main.py.
+    In that layout, __file__ == /app/main.py and the widget lives at /app/app/frontend/widget.
+
+    In local/dev layouts, __file__ may be .../app/api/main.py and the widget lives at
+    .../app/frontend/widget.
+    """
+    here = Path(__file__).resolve()
+
+    candidates = [
+        # Docker layout: /app/main.py -> /app/app/frontend/widget
+        here.parent / "app" / "frontend" / "widget",
+        # Dev layout: .../app/api/main.py -> .../app/frontend/widget
+        here.parent.parent / "frontend" / "widget",
+    ]
+
+    for p in candidates:
+        if p.exists() and p.is_dir():
+            return p
+
+    # Last resort: relative to CWD
+    p = Path.cwd() / "app" / "frontend" / "widget"
+    return p
+
+
+# Serve the web widget assets (versioned).
+_WIDGET_DIR = _find_widget_dir()
+if _WIDGET_DIR.exists():
+    app.mount("/widget", StaticFiles(directory=str(_WIDGET_DIR), html=True), name="widget")
 
 # Concurrency limiter: prevents too many simultaneous LLM calls (stabilizes latency)
 _llm_semaphore = asyncio.Semaphore(MAX_CONCURRENT_LLM)
@@ -91,6 +132,59 @@ class ChatResponse(BaseModel):
     latency_ms: int
     timings: TimingBreakdown
     cached: bool
+
+
+class ChatParams(BaseModel):
+    """Optional tuning knobs for admin/debug calls.
+
+    These are intentionally limited for safety.
+    """
+
+    top_k: Optional[int] = Field(None, ge=1, le=20)
+    num_candidates: Optional[int] = Field(None, ge=1, le=50)
+
+
+class AdminChatRequest(BaseModel):
+    question: str = Field(..., description="User's question for the TMU Arts chatbot.")
+    params: Optional[ChatParams] = None
+
+
+class IntentInfo(BaseModel):
+    label: str
+    confidence: float
+
+
+class RetrievalDebugItem(BaseModel):
+    rank: int
+    url: str
+    section: Optional[str] = None
+    vector_score: Optional[float] = None
+    text_score: Optional[float] = None
+    hybrid_score: Optional[float] = None
+    rerank_score: Optional[float] = None
+    snippet: str
+
+
+class RetrievalDebug(BaseModel):
+    top_k: int
+    num_candidates: int
+    rerank_enabled: bool
+    items: List[RetrievalDebugItem]
+
+
+class ModelDebug(BaseModel):
+    provider: str
+    name: str
+
+
+class AdminDebug(BaseModel):
+    intent: IntentInfo
+    retrieval: RetrievalDebug
+    model: ModelDebug
+
+
+class AdminChatResponse(ChatResponse):
+    debug: AdminDebug
 
 
 # -----------------------------
@@ -141,6 +235,42 @@ def redact_pii(text: str) -> str:
     text = phone.sub("[REDACTED_PHONE]", text)
     text = student_id.sub("[REDACTED_ID]", text)
     return text
+
+
+def detect_intent(question: str) -> IntentInfo:
+    """Heuristic intent detection (cheap + deterministic).
+
+    This is intentionally simple for the MVP. It can be replaced later with
+    an LLM classifier or hybrid approach.
+    """
+    q = normalize_question(question)
+
+    # Strong list / directory requests
+    if re.search(r"\b(list|show)\b.*\b(all|every)\b", q) or re.search(r"\b(list|catalog|directory)\b", q):
+        return IntentInfo(label="LIST_REQUEST", confidence=0.92)
+
+    if re.search(r"\b(programs?|departments?|contacts?|emails?|phone numbers?)\b", q) and re.search(r"\b(all|list|show)\b", q):
+        return IntentInfo(label="LIST_REQUEST", confidence=0.85)
+
+    # Procedural / how-to
+    if re.search(r"\b(how do i|how to|steps?|procedure|process)\b", q) or re.search(r"\b(apply|register|enroll|drop|withdraw|submit|request)\b", q):
+        return IntentInfo(label="PROCEDURAL", confidence=0.80)
+
+    # Factual / quick facts
+    if re.search(r"^(what|when|where|who|how many)\b", q):
+        return IntentInfo(label="FACT", confidence=0.70)
+
+    return IntentInfo(label="RAG_QA", confidence=0.55)
+
+
+def model_debug_info() -> ModelDebug:
+    provider = (LLM_PROVIDER or "").strip().lower() or "unknown"
+    name = "unknown"
+    if provider == "ollama":
+        name = OLLAMA_MODEL
+    elif provider == "azure":
+        name = AZURE_OPENAI_DEPLOYMENT
+    return ModelDebug(provider=provider, name=name)
 
 
 def build_messages_and_sources(
@@ -283,6 +413,97 @@ async def chat(req: ChatRequest) -> ChatResponse:
     await cache_set_json(resp_key, payload, CACHE_TTL_RESPONSE)
 
     return ChatResponse(**payload)
+
+
+@app.post("/admin/tools/chat", response_model=AdminChatResponse)
+async def admin_chat(req: AdminChatRequest) -> AdminChatResponse:
+    """Admin/debug chat endpoint.
+
+    This endpoint bypasses the response cache and returns extra debug
+    information (intent + retrieval details) to power internal tooling.
+    """
+    start_total = perf_counter()
+
+    q = sanitize_question(req.question)
+
+    # Params (fallback to env defaults)
+    top_k = (req.params.top_k if req.params and req.params.top_k is not None else RAG_TOP_K)
+    num_candidates = (
+        req.params.num_candidates if req.params and req.params.num_candidates is not None else RAG_NUM_CANDIDATES
+    )
+
+    intent = detect_intent(q)
+
+    # ---- Retrieval ----
+    pool = get_pool()
+    start_retrieve = perf_counter()
+    chunks = await retrieve(pool=pool, query=q, k=top_k, num_candidates=num_candidates)
+    retrieve_ms = int((perf_counter() - start_retrieve) * 1000)
+
+    # ---- Prompt building ----
+    start_prompt = perf_counter()
+    messages, sources = build_messages_and_sources(q, chunks)
+    prompt_ms = int((perf_counter() - start_prompt) * 1000)
+
+    # ---- LLM call (rate-limited) ----
+    start_llm = perf_counter()
+    async with _llm_semaphore:
+        try:
+            raw = await generate(messages)
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=f"LLM request failed: {e}")
+    llm_ms = int((perf_counter() - start_llm) * 1000)
+
+    answer = redact_pii(raw).strip()
+    total_ms = int((perf_counter() - start_total) * 1000)
+
+    # Debug retrieval items
+    items: List[RetrievalDebugItem] = []
+    for i, c in enumerate(chunks, start=1):
+        url = c.get("chunk_url") or c.get("source_url") or ""
+        section = c.get("section")
+        chunk_text = (c.get("chunk") or "").strip()
+        snippet = chunk_text[:300].replace("\n", " ").strip()
+        if len(chunk_text) > 300:
+            snippet += "…"
+        items.append(
+            RetrievalDebugItem(
+                rank=i,
+                url=str(url),
+                section=section,
+                vector_score=float(c["vector_score"]) if c.get("vector_score") is not None else None,
+                text_score=float(c["text_score"]) if c.get("text_score") is not None else None,
+                hybrid_score=float(c["hybrid_score"]) if c.get("hybrid_score") is not None else None,
+                rerank_score=float(c["rerank_score"]) if c.get("rerank_score") is not None else None,
+                snippet=snippet,
+            )
+        )
+
+    payload = {
+        "answer": answer,
+        "sources": [s.dict() for s in sources],
+        "latency_ms": total_ms,
+        "timings": {
+            "cache_ms": 0,
+            "retrieve_ms": retrieve_ms,
+            "prompt_ms": prompt_ms,
+            "llm_ms": llm_ms,
+            "total_ms": total_ms,
+        },
+        "cached": False,
+        "debug": {
+            "intent": intent.dict(),
+            "retrieval": {
+                "top_k": top_k,
+                "num_candidates": num_candidates,
+                "rerank_enabled": bool(RERANK_ENABLED),
+                "items": [it.dict() for it in items],
+            },
+            "model": model_debug_info().dict(),
+        },
+    }
+
+    return AdminChatResponse(**payload)
 
 
 @app.post("/api/chat/stream")
