@@ -397,13 +397,65 @@ docker-compose.yml
 - In case the commands/instructions in this file don't work, refer to README_OLD.md for commands
 - For some of the tuning knobs, there may be multiple instances of value assignment for them (one in docker-compose.yml, and another maybe in some python file). If updating the docker compose does not immediately change a tuning knob, search the repo for any other local instances.
 
-## TODO:
-- Experiment with different prompt sizes, number of chunks, and chunk sizes, etc. to find out what the best balance is for each tuning knob in our specific case/dataset.
-- Change app/crawler/profiles.yaml to ingest more TMU webpages, not just the arts pages.
+## Major features todo:
 - Make the frontend widget to be placed on TMU webpages.
-- Make a "Goldset/FAQ" document so common questions can easily be answered instead of relying on hard-to-find webpage content
+- Make goldset faq, undergrad programs, graduate programs, departments, staff contact information tables and then the infrastructure for them
+- Adding an analytics table + dashboard, tracking question, intent, sources retrieved, answer given, confidence score, satisfaction: shows us what we're getting and what we need
 
-## PROPOSED TODO:
-- For list data like programs, departments, dates, store them in database tables and return query summaries + links at runtime instead of relying on RAG (this way LLM is formatting, not finding)
+## Minor features todo:
+- Change app/crawler/profiles.yaml to ingest more TMU webpages, not just the arts pages.
+- Experiment with different prompt sizes, number of chunks, and chunk sizes, etc. to find out what the best balance is for each tuning knob in our specific case/dataset.
+- Add an answer formatting layer, tables for lists, numbered steps for procedures, bullet points for requirements, short summaries first, details after, sources at the end
+
+## proposed todo:
 - Detect when a question asks for specific lists or information and either increase retrieved context, or fallback to tables.
 - Work on “smart ingestion”: chunk information based on headings / lists instead of raw text count.
+- Graceful escalation "I may not have complete information, you may want to contact"
+
+## Current task:
+Chat Widget:
+- Build it with a debug drawer that can be toggled on and off
+- A basic <ChatWidget apiBaseUrl="" mode="public|admin"/>
+- Takes: apiBaseUrl, title, initial prompt, enable citations, enable debug, default params
+- Adapter layer: sendMessage(query, sessionId, options) calls: /chat (public), /admin/tools/chat (debug mode)
+- MVP: Message list (user + assistant), loading indicator/streaming, citations (links), "copy answer", "reset chat" button
+- Admin: debug drawer on each assistant message showing: intent + confidence, retrieval top-k sources + scores, reranker on/off, latency + model used
+- be able to just stick it in a div, no global css, 
+- Backend: fastapi (what we already have), frontend: vanilla JS, dependency free web component with shadow DOM, a small init() api, and versioned script URLs
+
+Analytics Dashboard:
+1. Quality + trust section (is it answering well?):
+  - % of answers that include verified citations
+  - % low-confidence rate (how often retrieval is weak)
+  - zero-hit queries (number of queries with no chunks retrieved)
+  - downvoted queries (could be for any reason, wrong/outdated/missing)
+  - hallucination risk flags (answers without citations, answers when confidence is below threshold, answer contradicts retrieved text)
+2. Content gaps (what do we need to add?):
+  - top unanswered/low confidence questions (last 7-30 days)
+  - queries that should become FAQ goldset
+  - queries that should become structured table entries (program lists, contacts)
+  - most requested departments/programs
+3. Ops + performance (does it survive traffic?)
+  - latency avg
+  - cache hit rate
+  - error rate/timeouts
+  - token usage / cost estimates
+4. Retrieval health (does RAG work?)
+  - top sources used
+  - bad sources, sources that coorelate with downvotes
+  - duplicate retrieval rate (how often top-k hcunks are basically the same page)
+5. Drilldown Table (performance at a glance):
+  - query, intent, retrieved chunks, final answer, confidence score breakdown, feedback 
+6. Playground:
+  a. Retrieval inspector: 
+  Inputs:
+    - query textbox
+    - controls (top_k, candidates, max_chars, use_reranker, use_query_rewrite, use_decomposition)
+    - filters (only tmu.ca, only faculty of arts sites)
+  Outputs:
+    - rank, title+url, similarity score, rerank score, chunk text preview, page metadata
+  Implement using an admin endpoint that wraps the same retrieval pipeline our cli uses but returns a json POST /admin/tools/inspect_retrieval
+  b. Chat bot
+    - Real conversation UI/widget shows: final answer, citations, confidence score, latency, model used
+    - Debug drawer: detected intent + confidence, rewritten/decomposed queries, retrieved chunks list + scores, prompt metadata, cache hit/miss
+  Implement using current endpoint but add a debug flag
