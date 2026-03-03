@@ -31,11 +31,13 @@ from typing import List, Sequence
 import numpy as np
 from sentence_transformers import SentenceTransformer
 
+from app.api.config import EMBED_MODEL_NAME
+
 # 384-dim model, matches VECTOR(384) in the DB.
 # This can be changed later but we MUST:
 # - re-embed all chunks with the new model
 # - update the VECTOR dimension in schema.sql if needed
-EMBEDDING_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
+EMBEDDING_MODEL_NAME = EMBED_MODEL_NAME
 EMBEDDING_DIM = 384
 
 

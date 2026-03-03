@@ -1,32 +1,16 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
-import os
+from typing import Any, Dict, List
 
 import asyncpg
 
 from app.rag.embeddings import embed_query
 from app.rag.reranker import rerank
 
+from app.api.config import HYBRID_WEIGHT_TEXT, HYBRID_WEIGHT_VECTOR, RERANK_ENABLED
 
-def _get_int(name: str, default: int) -> int:
-    val = os.getenv(name)
-    if not val:
-        return default
-    try:
-        return int(val)
-    except ValueError:
-        return default
-
-
-def _get_bool(name: str, default: bool) -> bool:
-    val = os.getenv(name)
-    if val is None:
-        return default
-    return val.strip().lower() in ("1", "true", "yes", "y", "on")
-
-
-RERANK_ENABLED = _get_bool("RERANK_ENABLED", True)
+# NOTE: RERANK_ENABLED and hybrid weights come from app.api.config so they can be
+# centrally validated and controlled via .env / docker-compose.
 
 
 async def retrieve_candidates(
@@ -62,11 +46,13 @@ async def retrieve_candidates(
           vector_score,
           text_score,
           hybrid_score
-        FROM rag_hybrid_search($1, $2::vector, $3)
+        FROM rag_hybrid_search($1, $2::vector, $3, $4, $5)
         """,
         query,
         q_emb_str,  # <- IMPORTANT: string, not list
         k,
+        HYBRID_WEIGHT_VECTOR,
+        HYBRID_WEIGHT_TEXT,
     )
 
     return [dict(r) for r in rows]

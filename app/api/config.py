@@ -36,6 +36,10 @@ def _get_bool(name: str, default: bool) -> bool:
     return val.strip().lower() in ("1", "true", "yes", "y", "on")
 
 
+def _clamp(v: float, lo: float, hi: float) -> float:
+    return max(lo, min(hi, v))
+
+
 # ---- DB ----
 PGHOST = os.getenv("PGHOST", "pg")
 PGPORT = _get_int("PGPORT", 5432)
@@ -53,9 +57,24 @@ RAG_TOP_K = _get_int("RAG_TOP_K", 4)
 RAG_NUM_CANDIDATES = _get_int("RAG_NUM_CANDIDATES", 12)
 RERANK_ENABLED = _get_bool("RERANK_ENABLED", True)
 
+# ---- Retrieval scoring knobs (Postgres hybrid search) ----
+# These weights are passed to the SQL function rag_hybrid_search().
+# They should sum to ~1.0; if not, we normalize.
+_wv = _get_float("HYBRID_WEIGHT_VECTOR", 0.7)
+_wt = _get_float("HYBRID_WEIGHT_TEXT", 0.3)
+_sum = _wv + _wt
+if _sum <= 0:
+    HYBRID_WEIGHT_VECTOR, HYBRID_WEIGHT_TEXT = 0.7, 0.3
+else:
+    HYBRID_WEIGHT_VECTOR, HYBRID_WEIGHT_TEXT = (_wv / _sum), (_wt / _sum)
+
 # ---- Prompt limits ----
 MAX_CHUNK_CHARS = _get_int("MAX_CHUNK_CHARS", 800)
 MAX_CONTEXT_CHARS = _get_int("MAX_CONTEXT_CHARS", 3200)
+
+# ---- Embeddings (runtime retrieval) ----
+# Must match ingestion EMBED_MODEL_NAME and DB vector dimension.
+EMBED_MODEL_NAME = os.getenv("EMBED_MODEL_NAME", "sentence-transformers/all-MiniLM-L6-v2")
 
 # ---- CORS ----
 CORS_ALLOW_ORIGINS = _get_csv("CORS_ALLOW_ORIGINS", ["https://www.torontomu.ca"])
@@ -89,11 +108,12 @@ AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY", "")
 AZURE_OPENAI_DEPLOYMENT = os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4o-mini")
 AZURE_OPENAI_API_VERSION = os.getenv("AZURE_OPENAI_API_VERSION", "2024-10-21")
 
-# Cost controls (recommended): keep <= 512
-AZURE_OPENAI_MAX_TOKENS = min(_get_int("AZURE_OPENAI_MAX_TOKENS", 512), 512)
+# Output token budget.
+# NOTE: This is capped to the model's max output (gpt-4o-mini supports up to 16384).
+AZURE_OPENAI_MAX_TOKENS = min(_get_int("AZURE_OPENAI_MAX_TOKENS", 512), 16384)
 
 _tmp_temp = _get_float("AZURE_OPENAI_TEMPERATURE", 0.1)
-AZURE_OPENAI_TEMPERATURE = max(0.0, min(2.0, _tmp_temp))
+AZURE_OPENAI_TEMPERATURE = _clamp(_tmp_temp, 0.0, 2.0)
 
 AZURE_OPENAI_TIMEOUT_SECONDS = _get_int("AZURE_OPENAI_TIMEOUT_SECONDS", 60)
 

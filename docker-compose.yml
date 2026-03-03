@@ -47,15 +47,15 @@ services:
       dockerfile: app/api/Dockerfile
     environment:
       # DB
-      PGHOST: pg
-      PGUSER: rag
-      PGPASSWORD: rag
-      PGDATABASE: ragdb
-      PGPORT: 5432
+      PGHOST: ${PGHOST:-pg}
+      PGUSER: ${PGUSER:-rag}
+      PGPASSWORD: ${PGPASSWORD:-rag}
+      PGDATABASE: ${PGDATABASE:-ragdb}
+      PGPORT: ${PGPORT:-5432}
 
       # Ollama
-      OLLAMA_HOST: http://ollama:11434
-      OLLAMA_MODEL: qwen2.5:1.5b
+      OLLAMA_HOST: ${OLLAMA_HOST:-http://ollama:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:1.5b}
 
       # LLM provider switch
       # - azure  => Azure OpenAI (recommended)
@@ -72,34 +72,46 @@ services:
       # Cost controls
       AZURE_OPENAI_MAX_TOKENS: ${AZURE_OPENAI_MAX_TOKENS:-512}
       AZURE_OPENAI_TEMPERATURE: ${AZURE_OPENAI_TEMPERATURE:-0.1}
+      AZURE_OPENAI_TIMEOUT_SECONDS: ${AZURE_OPENAI_TIMEOUT_SECONDS:-60}
 
       # Redis
-      REDIS_URL: redis://redis:6379/0
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+
+      # CORS
+      CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS:-https://www.torontomu.ca}
 
       # Production tuning knobs
-      RAG_TOP_K: 4
-      RAG_NUM_CANDIDATES: 12
-      RERANK_ENABLED: "true"
+      RAG_TOP_K: ${RAG_TOP_K:-4}
+      RAG_NUM_CANDIDATES: ${RAG_NUM_CANDIDATES:-12}
+      RERANK_ENABLED: ${RERANK_ENABLED:-true}
+      RERANK_MODEL: ${RERANK_MODEL:-cross-encoder/ms-marco-MiniLM-L-6-v2}
+
+      # Hybrid retrieval weights (vector vs keyword)
+      HYBRID_WEIGHT_VECTOR: ${HYBRID_WEIGHT_VECTOR:-0.7}
+      HYBRID_WEIGHT_TEXT: ${HYBRID_WEIGHT_TEXT:-0.3}
+
+      # Embedding model name (must match ingestion)
+      EMBED_MODEL_NAME: ${EMBED_MODEL_NAME:-sentence-transformers/all-MiniLM-L6-v2}
 
       # Prompt limits
-      MAX_CHUNK_CHARS: 1600
-      MAX_CONTEXT_CHARS: 8000
+      MAX_CHUNK_CHARS: ${MAX_CHUNK_CHARS:-1600}
+      MAX_CONTEXT_CHARS: ${MAX_CONTEXT_CHARS:-8000}
 
       # Generation limits
-      OLLAMA_NUM_PREDICT: 512
-      OLLAMA_TEMPERATURE: 0.1
-      OLLAMA_TOP_P: 0.9
+      OLLAMA_NUM_PREDICT: ${OLLAMA_NUM_PREDICT:-512}
+      OLLAMA_TEMPERATURE: ${OLLAMA_TEMPERATURE:-0.1}
+      OLLAMA_TOP_P: ${OLLAMA_TOP_P:-0.9}
 
       # Reliability
-      OLLAMA_TIMEOUT_SECONDS: 90
-      OLLAMA_MAX_RETRIES: 2
+      OLLAMA_TIMEOUT_SECONDS: ${OLLAMA_TIMEOUT_SECONDS:-90}
+      OLLAMA_MAX_RETRIES: ${OLLAMA_MAX_RETRIES:-2}
 
       # Concurrency
-      MAX_CONCURRENT_LLM: 2
+      MAX_CONCURRENT_LLM: ${MAX_CONCURRENT_LLM:-2}
 
       # Cache TTLs (seconds)
-      CACHE_TTL_RESPONSE: 3600
-      CACHE_TTL_RETRIEVAL: 3600
+      CACHE_TTL_RESPONSE: ${CACHE_TTL_RESPONSE:-3600}
+      CACHE_TTL_RETRIEVAL: ${CACHE_TTL_RETRIEVAL:-3600}
     depends_on:
       pg:
         condition: service_healthy
@@ -114,14 +126,14 @@ services:
       dockerfile: app/crawler/Dockerfile
     profiles: ["crawl"]
     environment:
-      PGHOST: pg
-      PGUSER: rag
-      PGPASSWORD: rag
-      PGDATABASE: ragdb
-      CRAWL_PROFILE: arts
+      PGHOST: ${PGHOST:-pg}
+      PGUSER: ${PGUSER:-rag}
+      PGPASSWORD: ${PGPASSWORD:-rag}
+      PGDATABASE: ${PGDATABASE:-ragdb}
+      CRAWL_PROFILE: ${CRAWL_PROFILE:-arts}
       # Politeness: requests per second per host
-      CRAWL_RPS: 1.0
-      CRAWL_ENABLE_SITEMAPS: "true"
+      CRAWL_RPS: ${CRAWL_RPS:-1.0}
+      CRAWL_ENABLE_SITEMAPS: ${CRAWL_ENABLE_SITEMAPS:-true}
     depends_on:
       pg:
         condition: service_healthy
@@ -133,13 +145,18 @@ services:
       dockerfile: app/ingestion/Dockerfile
     profiles: ["ingest"]
     environment:
-      PGHOST: pg
-      PGUSER: rag
-      PGPASSWORD: rag
-      PGDATABASE: ragdb
-      INGEST_MODE: db
-      CRAWL_PROFILE: arts
-      INGEST_LIMIT: 200
+      PGHOST: ${PGHOST:-pg}
+      PGUSER: ${PGUSER:-rag}
+      PGPASSWORD: ${PGPASSWORD:-rag}
+      PGDATABASE: ${PGDATABASE:-ragdb}
+      INGEST_MODE: ${INGEST_MODE:-db}
+      CRAWL_PROFILE: ${CRAWL_PROFILE:-arts}
+      INGEST_LIMIT: ${INGEST_LIMIT:-200}
+
+      # Ingestion chunking + embeddings (re-ingest required after changing)
+      EMBED_MODEL_NAME: ${EMBED_MODEL_NAME:-sentence-transformers/all-MiniLM-L6-v2}
+      CHUNK_TOKEN_SIZE: ${CHUNK_TOKEN_SIZE:-250}
+      CHUNK_TOKEN_OVERLAP: ${CHUNK_TOKEN_OVERLAP:-50}
       # Playwright (JS-rendering) ingestion options
       INGEST_USE_PLAYWRIGHT: ${INGEST_USE_PLAYWRIGHT:-true}
       INGEST_PLAYWRIGHT_ALWAYS: ${INGEST_PLAYWRIGHT_ALWAYS:-false}
@@ -157,15 +174,20 @@ services:
       dockerfile: app/pipeline/Dockerfile
     profiles: ["pipeline"]
     environment:
-      PGHOST: pg
-      PGUSER: rag
-      PGPASSWORD: rag
-      PGDATABASE: ragdb
-      PIPELINE_PROFILES: arts
-      PIPELINE_INTERVAL_SECONDS: 21600 # 6h
-      CRAWL_RPS: 1.0
-      CRAWL_ENABLE_SITEMAPS: "true"
-      INGEST_LIMIT: 200
+      PGHOST: ${PGHOST:-pg}
+      PGUSER: ${PGUSER:-rag}
+      PGPASSWORD: ${PGPASSWORD:-rag}
+      PGDATABASE: ${PGDATABASE:-ragdb}
+      PIPELINE_PROFILES: ${PIPELINE_PROFILES:-arts}
+      PIPELINE_INTERVAL_SECONDS: ${PIPELINE_INTERVAL_SECONDS:-21600} # 6h
+      CRAWL_RPS: ${CRAWL_RPS:-1.0}
+      CRAWL_ENABLE_SITEMAPS: ${CRAWL_ENABLE_SITEMAPS:-true}
+      INGEST_LIMIT: ${INGEST_LIMIT:-200}
+
+      # Ingestion chunking + embeddings (re-ingest required after changing)
+      EMBED_MODEL_NAME: ${EMBED_MODEL_NAME:-sentence-transformers/all-MiniLM-L6-v2}
+      CHUNK_TOKEN_SIZE: ${CHUNK_TOKEN_SIZE:-250}
+      CHUNK_TOKEN_OVERLAP: ${CHUNK_TOKEN_OVERLAP:-50}
       # Playwright (JS-rendering) ingestion options
       INGEST_USE_PLAYWRIGHT: ${INGEST_USE_PLAYWRIGHT:-true}
       INGEST_PLAYWRIGHT_ALWAYS: ${INGEST_PLAYWRIGHT_ALWAYS:-false}
