@@ -4,13 +4,35 @@ from dataclasses import asdict, dataclass
 import json
 import logging
 import re
+import sys
 from typing import Optional
 
 from app.api.program_registry import match_program
 from app.api.session_store import SessionState
 
 
-logger = logging.getLogger("tmu.turn_prep")
+def _build_turn_prep_logger() -> logging.Logger:
+    """Create a logger that always writes turn-prep lines to container stdout.
+
+    Uvicorn config does not automatically emit INFO logs from arbitrary child loggers.
+    We attach a dedicated stdout handler here so the requested debug lines are always
+    visible in `docker compose logs -f api` without relying on external logging config.
+    """
+    logger = logging.getLogger("tmu.turn_prep")
+    logger.setLevel(logging.INFO)
+
+    if not any(getattr(h, "_tmu_turn_prep_handler", False) for h in logger.handlers):
+        handler = logging.StreamHandler(sys.stdout)
+        handler.setLevel(logging.INFO)
+        handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s"))
+        handler._tmu_turn_prep_handler = True  # type: ignore[attr-defined]
+        logger.addHandler(handler)
+
+    logger.propagate = False
+    return logger
+
+
+logger = _build_turn_prep_logger()
 
 
 _PROGRAM_PROMPT = (

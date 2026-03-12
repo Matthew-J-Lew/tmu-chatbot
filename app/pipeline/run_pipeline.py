@@ -49,7 +49,7 @@ def run_pipeline_once(profiles: List[str], *, crawl_rps: float, enable_sitemaps:
 def main() -> None:
     """CLI entrypoint for one-shot pipeline execution."""
     parser = argparse.ArgumentParser(description="Run crawl + ingestion in a single command.")
-    parser.add_argument("--profiles", default=os.getenv("PIPELINE_PROFILES", "arts"), help="Comma-separated crawl profile names")
+    parser.add_argument("--profiles", default=os.getenv("PIPELINE_PROFILES", "arts,arts_calendar,tmu_core"), help="Comma-separated crawl profile names")
     parser.add_argument("--crawl-rps", type=float, default=float(os.getenv("CRAWL_RPS", "1.0")))
     parser.add_argument("--enable-sitemaps", action="store_true", default=os.getenv("CRAWL_ENABLE_SITEMAPS", "true").lower() in {"1","true","yes"})
     parser.add_argument("--ingest-limit", type=int, default=int(os.getenv("INGEST_LIMIT", "200")))

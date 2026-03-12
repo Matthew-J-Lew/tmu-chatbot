@@ -54,3 +54,9 @@ def test_standalone_question_does_not_force_prior_context():
     result = prepare_turn("abc", "How do I apply?", state)
 
     assert result.effective_question == "How do I apply?"
+
+
+def test_turn_prep_logger_is_stdout_backed():
+    assert turn_prep.logger.level == turn_prep.logging.INFO
+    assert turn_prep.logger.propagate is False
+    assert any(getattr(h, "_tmu_turn_prep_handler", False) for h in turn_prep.logger.handlers)

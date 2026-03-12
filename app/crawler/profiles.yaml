@@ -19,6 +19,12 @@ profiles:
       - ^/arts/calendar
       - ^/arts/social
       - ^/arts/future-students/events
+      - ^/arts/faculty-and-staff
+      - ^/arts/research-and-innovation
+      - ^/arts/alumni-and-partners
+      - ^/arts/about/our-people
+      - ^/arts/about/academic-plan-
+      - ^/arts/undergraduate/dean-s-list
       - /search
       - /site-map
       - /sitemap
@@ -26,3 +32,60 @@ profiles:
     include_pdfs: true
     max_pages: 8000
     max_depth: 6
+    use_sitemaps: true
+
+  arts_calendar:
+    generated:
+      kind: arts_calendar
+      years_env: CRAWL_CALENDAR_ALLOWED_YEARS
+      default_years:
+        - 2025-2026
+        - 2026-2027
+    allowed_domains:
+      - www.torontomu.ca
+      - torontomu.ca
+    seeds: []
+    allowed_path_prefixes: []
+    allowed_path_regex: []
+    deny_path_regex: []
+    strip_query: true
+    include_pdfs: false
+    max_pages: 2500
+    max_depth: 4
+    use_sitemaps: false
+
+  tmu_core:
+    seeds:
+      - https://www.torontomu.ca/admissions/undergraduate/
+      - https://www.torontomu.ca/admissions/undergraduate/apply/
+      - https://www.torontomu.ca/admissions/undergraduate/requirements/
+      - https://www.torontomu.ca/admissions/undergraduate/after-applying/new-students/
+      - https://www.torontomu.ca/student-financial-assistance/
+      - https://www.torontomu.ca/student-financial-assistance/scholarships-bursaries/
+      - https://www.torontomu.ca/career-coop-student-success/
+      - https://www.torontomu.ca/career-coop-student-success/career-coop/
+      - https://www.torontomu.ca/career-coop-student-success/career-coop/coop/
+      - https://www.torontomu.ca/career-coop-student-success/career-coop/coop/co-op-programs/
+      - https://www.torontomu.ca/curriculum-advising/curriculum-requirements/program-requirements/
+    allowed_domains:
+      - www.torontomu.ca
+      - torontomu.ca
+    allowed_path_prefixes:
+      - /admissions/undergraduate
+      - /student-financial-assistance
+      - /career-coop-student-success
+      - /curriculum-advising/curriculum-requirements
+    deny_path_regex:
+      - ^/admissions/.*/events?
+      - ^/career-coop-student-success/.*/events?
+      - ^/career-coop-student-success/news
+      - ^/career-coop-student-success/employers
+      - ^/career-coop-student-success/about
+      - /search
+      - /site-map
+      - /sitemap
+    strip_query: true
+    include_pdfs: true
+    max_pages: 500
+    max_depth: 1
+    use_sitemaps: false

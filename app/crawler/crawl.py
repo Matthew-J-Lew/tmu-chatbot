@@ -15,13 +15,20 @@ import xml.etree.ElementTree as ET
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Deque, Dict, Iterable, List, Optional, Set, Tuple
+from typing import Any, Deque, Dict, Iterable, List, Optional, Set, Tuple
 
-import psycopg2
 import requests
 import yaml
 from bs4 import BeautifulSoup
-from psycopg2.extras import Json
+
+try:
+    import psycopg2
+    from psycopg2.extras import Json
+except Exception:  # pragma: no cover - allows config helpers to be imported without DB deps
+    psycopg2 = None
+
+    def Json(value):
+        return value
 
 PGHOST = os.getenv("PGHOST", "pg")
 PGUSER = os.getenv("PGUSER", "rag")
@@ -30,6 +37,8 @@ PGDATABASE = os.getenv("PGDATABASE", "ragdb")
 
 CRAWL_USER_AGENT = os.getenv("CRAWL_USER_AGENT", "TMU-FOA-Crawler/0.1 (+https://www.torontomu.ca/)")
 DEFAULT_TIMEOUT = int(os.getenv("CRAWL_TIMEOUT_SECONDS", "45"))
+CALENDAR_YEAR_RE = re.compile(r"^\d{4}-\d{4}$")
+ENV_VAR_RE = re.compile(r"\$\{([A-Z0-9_]+)(?::-([^}]*))?\}")
 
 
 @dataclass
@@ -41,11 +50,13 @@ class CrawlProfile:
     seeds: List[str]
     allowed_domains: List[str]
     allowed_path_prefixes: List[str]
+    allowed_path_regex: List[str]
     deny_path_regex: List[str]
     strip_query: bool
     include_pdfs: bool
     max_pages: int
     max_depth: int
+    use_sitemaps: bool = True
 
 
 class HostRateLimiter:
@@ -70,6 +81,8 @@ class HostRateLimiter:
 
 def connect():
     """Open a Postgres connection (psycopg2)."""
+    if psycopg2 is None:
+        raise RuntimeError("psycopg2 is required to connect to Postgres for crawling")
     return psycopg2.connect(host=PGHOST, user=PGUSER, password=PGPASSWORD, dbname=PGDATABASE)
 
 
@@ -100,7 +113,7 @@ def normalize_url(url: str, base_url: Optional[str] = None, strip_query: bool = 
     path = parsed.path or "/"
 
     # Normalize repeated slashes and strip trailing slash (except root).
-    path = re.sub(r"/+$", "/", path)
+    path = re.sub(r"/+", "/", path)
     if path != "/" and path.endswith("/"):
         path = path[:-1]
 
@@ -115,7 +128,130 @@ def normalize_url(url: str, base_url: Optional[str] = None, strip_query: bool = 
     return rebuilt
 
 
-def url_in_scope(url: str, allowed_domains: List[str], allowed_prefixes: List[str], deny_regex: List[str]) -> Tuple[bool, str]:
+def _expand_env_string(value: str) -> str:
+    def repl(match: re.Match[str]) -> str:
+        key = match.group(1)
+        default = match.group(2) or ""
+        return os.getenv(key, default)
+
+    return ENV_VAR_RE.sub(repl, value)
+
+
+def _expand_env_vars(value: Any) -> Any:
+    if isinstance(value, str):
+        return _expand_env_string(value)
+    if isinstance(value, list):
+        return [_expand_env_vars(v) for v in value]
+    if isinstance(value, dict):
+        return {k: _expand_env_vars(v) for k, v in value.items()}
+    return value
+
+
+def _dedupe_keep_order(values: Iterable[str]) -> List[str]:
+    out: List[str] = []
+    seen: Set[str] = set()
+    for value in values:
+        if not value:
+            continue
+        if value in seen:
+            continue
+        seen.add(value)
+        out.append(value)
+    return out
+
+
+def parse_calendar_years(raw: Optional[str], default_years: Optional[List[str]] = None) -> List[str]:
+    """Parse env-provided calendar years like '2025-2026,2026-2027'."""
+    years: List[str] = []
+    for item in (raw or "").split(","):
+        year = item.strip()
+        if not year:
+            continue
+        if not CALENDAR_YEAR_RE.match(year):
+            raise ValueError(
+                f"Invalid calendar year {year!r}. Expected entries like '2025-2026' in CRAWL_CALENDAR_ALLOWED_YEARS."
+            )
+        years.append(year)
+
+    if years:
+        return _dedupe_keep_order(years)
+
+    fallback = [y.strip() for y in (default_years or []) if str(y).strip()]
+    invalid = [y for y in fallback if not CALENDAR_YEAR_RE.match(y)]
+    if invalid:
+        raise ValueError(f"Invalid default calendar year(s) in profiles.yaml: {invalid!r}")
+    return _dedupe_keep_order(fallback)
+
+
+def _build_arts_calendar_profile(base_cfg: Dict[str, Any]) -> Dict[str, Any]:
+    generated_cfg = dict(base_cfg.get("generated") or {})
+    years_env = str(generated_cfg.get("years_env") or "CRAWL_CALENDAR_ALLOWED_YEARS")
+    default_years = list(generated_cfg.get("default_years") or [])
+    years = parse_calendar_years(os.getenv(years_env), default_years)
+    if not years:
+        raise ValueError(
+            f"No calendar years configured for arts_calendar. Set {years_env} or add generated.default_years in profiles.yaml."
+        )
+
+    seeds = list(base_cfg.get("seeds") or [])
+    prefixes = list(base_cfg.get("allowed_path_prefixes") or [])
+    allow_regex = list(base_cfg.get("allowed_path_regex") or [])
+    deny_regex = list(base_cfg.get("deny_path_regex") or [])
+
+    for year in years:
+        seeds.append(f"https://www.torontomu.ca/calendar/{year}/programs/arts/")
+        seeds.append(f"https://www.torontomu.ca/calendar/{year}/sitemap/")
+        prefixes.append(f"/calendar/{year}/programs/arts")
+        prefixes.append(f"/content/ryerson/calendar/{year}/programs/arts")
+        allow_regex.extend([
+            rf"^/calendar/{year}/sitemap(?:/|\.html)?$",
+            rf"^/content/ryerson/calendar/{year}/sitemap(?:\.html)?$",
+        ])
+
+    deny_regex.extend(
+        [
+            r"/printpage(?:\.htm|\.html)?$",
+            r"^/calendar/\d{4}-\d{4}/courses(?:/|$)",
+            r"^/content/ryerson/calendar/\d{4}-\d{4}/courses(?:/|$)",
+            r"^/calendar/\d{4}-\d{4}/(?:az_index|search|site-map)(?:/|$)",
+            r"^/content/ryerson/calendar/\d{4}-\d{4}/(?:az_index|search|site-map)(?:/|$)",
+        ]
+    )
+
+    resolved = dict(base_cfg)
+    resolved["seeds"] = _dedupe_keep_order(seeds)
+    resolved["allowed_path_prefixes"] = _dedupe_keep_order(prefixes)
+    resolved["allowed_path_regex"] = _dedupe_keep_order(allow_regex)
+    resolved["deny_path_regex"] = _dedupe_keep_order(deny_regex)
+    resolved["include_pdfs"] = bool(resolved.get("include_pdfs", False))
+    resolved["use_sitemaps"] = bool(resolved.get("use_sitemaps", False))
+    resolved.setdefault("max_pages", 2500)
+    resolved.setdefault("max_depth", 4)
+    resolved.setdefault("metadata", {})
+    resolved["metadata"] = {**dict(resolved.get("metadata") or {}), "calendar_years": years, "calendar_years_env": years_env}
+    return resolved
+
+
+def resolve_profile_config(name: str, cfg: Dict[str, Any]) -> Dict[str, Any]:
+    """Resolve env-expanded and generated profile config from YAML."""
+    resolved = _expand_env_vars(dict(cfg or {}))
+    generated = dict(resolved.get("generated") or {})
+    kind = str(generated.get("kind") or "").strip().lower()
+
+    if kind == "arts_calendar":
+        resolved = _build_arts_calendar_profile(resolved)
+
+    resolved.pop("generated", None)
+    return resolved
+
+
+def url_in_scope(
+    url: str,
+    allowed_domains: List[str],
+    allowed_prefixes: List[str],
+    allowed_regex: List[str],
+    deny_regex: List[str],
+) -> Tuple[bool, str]:
     """Return (allowed, reason) applying the profile's policy rules."""
     p = urllib.parse.urlparse(url)
     host = p.netloc.lower()
@@ -129,8 +265,21 @@ def url_in_scope(url: str, allowed_domains: List[str], allowed_prefixes: List[st
     if '@' in path:
         return False, 'email_in_path'
 
-    if allowed_prefixes and not any(path.startswith(pref) for pref in allowed_prefixes):
-        return False, "path_prefix_not_allowed"
+    prefix_match = any(path.startswith(pref) for pref in allowed_prefixes) if allowed_prefixes else False
+    regex_match = False
+    matched_allow_regex = None
+    for pat in allowed_regex:
+        try:
+            if re.search(pat, path):
+                regex_match = True
+                matched_allow_regex = pat
+                break
+        except re.error:
+            continue
+
+    if allowed_prefixes or allowed_regex:
+        if not (prefix_match or regex_match):
+            return False, "path_not_allowed"
 
     for pat in deny_regex:
         try:
@@ -139,6 +288,10 @@ def url_in_scope(url: str, allowed_domains: List[str], allowed_prefixes: List[st
         except re.error:
             continue
 
+    if regex_match and matched_allow_regex:
+        return True, f"allowed_by_regex:{matched_allow_regex}"
+    if prefix_match:
+        return True, "allowed_by_prefix"
     return True, "allowed"
 
 
@@ -165,6 +318,11 @@ def compute_priority(url: str, depth: int, from_sitemap: bool) -> float:
     for kw in negative:
         if kw in path:
             score -= 0.12
+
+    if re.search(r"/calendar/\d{4}-\d{4}/programs/arts/", path) or re.search(r"/content/ryerson/calendar/\d{4}-\d{4}/programs/arts/", path):
+        score += 0.18
+    if path.endswith("/table_i") or path.endswith("/table_ii") or path.endswith("/table_i.html") or path.endswith("/table_ii.html"):
+        score += 0.14
 
     # Slightly prefer shallow URLs.
     score -= min(depth, 10) * 0.02
@@ -236,7 +394,11 @@ def parse_sitemap(content: bytes, base_url: str) -> List[str]:
 def load_profiles_yaml(path: str) -> dict:
     """Load crawl profiles from a YAML file."""
     with open(path, "r", encoding="utf-8") as f:
-        return yaml.safe_load(f) or {}
+        raw = yaml.safe_load(f) or {}
+
+    profiles = raw.get("profiles") or {}
+    resolved_profiles = {name: resolve_profile_config(name, cfg) for name, cfg in profiles.items()}
+    return {**raw, "profiles": resolved_profiles}
 
 
 def ensure_profile(cur, name: str, yaml_path: str) -> CrawlProfile:
@@ -265,6 +427,22 @@ def ensure_profile(cur, name: str, yaml_path: str) -> CrawlProfile:
         (name,),
     )
     row = cur.fetchone()
+
+    def _profile_from_cfg(pid: int, cfg_dict: Dict[str, Any]) -> CrawlProfile:
+        return CrawlProfile(
+            id=pid,
+            name=name,
+            seeds=list(cfg_dict.get("seeds", [])),
+            allowed_domains=list(cfg_dict.get("allowed_domains", [])),
+            allowed_path_prefixes=list(cfg_dict.get("allowed_path_prefixes", [])),
+            allowed_path_regex=list(cfg_dict.get("allowed_path_regex", [])),
+            deny_path_regex=list(cfg_dict.get("deny_path_regex", [])),
+            strip_query=bool(cfg_dict.get("strip_query", True)),
+            include_pdfs=bool(cfg_dict.get("include_pdfs", True)),
+            max_pages=int(cfg_dict.get("max_pages", 5000)),
+            max_depth=int(cfg_dict.get("max_depth", 6)),
+            use_sitemaps=bool(cfg_dict.get("use_sitemaps", True)),
+        )
 
     # If profile exists and we have YAML config, keep DB updated.
     if row and prof_cfg is not None:
@@ -305,18 +483,7 @@ def ensure_profile(cur, name: str, yaml_path: str) -> CrawlProfile:
             ),
         )
 
-        return CrawlProfile(
-            id=pid,
-            name=name,
-            seeds=seeds,
-            allowed_domains=allowed_domains,
-            allowed_path_prefixes=allowed_path_prefixes,
-            deny_path_regex=deny_path_regex,
-            strip_query=strip_query,
-            include_pdfs=include_pdfs,
-            max_pages=max_pages,
-            max_depth=max_depth,
-        )
+        return _profile_from_cfg(pid, prof_cfg)
 
     if row:
         return CrawlProfile(
@@ -325,11 +492,13 @@ def ensure_profile(cur, name: str, yaml_path: str) -> CrawlProfile:
             seeds=list(row[2] or []),
             allowed_domains=list(row[3] or []),
             allowed_path_prefixes=list(row[4] or []),
+            allowed_path_regex=[],
             deny_path_regex=list(row[5] or []),
             strip_query=bool(row[6]),
             include_pdfs=bool(row[7]),
             max_pages=int(row[8]),
             max_depth=int(row[9]),
+            use_sitemaps=True,
         )
 
     # Profile missing in DB: bootstrap from YAML.
@@ -356,18 +525,7 @@ def ensure_profile(cur, name: str, yaml_path: str) -> CrawlProfile:
         ),
     )
     pid = int(cur.fetchone()[0])
-    return CrawlProfile(
-        id=pid,
-        name=name,
-        seeds=list(prof_cfg.get("seeds", [])),
-        allowed_domains=list(prof_cfg.get("allowed_domains", [])),
-        allowed_path_prefixes=list(prof_cfg.get("allowed_path_prefixes", [])),
-        deny_path_regex=list(prof_cfg.get("deny_path_regex", [])),
-        strip_query=bool(prof_cfg.get("strip_query", True)),
-        include_pdfs=bool(prof_cfg.get("include_pdfs", True)),
-        max_pages=int(prof_cfg.get("max_pages", 5000)),
-        max_depth=int(prof_cfg.get("max_depth", 6)),
-    )
+    return _profile_from_cfg(pid, prof_cfg)
 
 
 def create_crawl_run(cur, profile_id: int, meta: dict) -> int:
@@ -445,6 +603,7 @@ def run_crawl(profile: CrawlProfile, rps: float, enable_sitemaps: bool, max_page
     """Run discovery and write approved targets to DB; returns simple stats."""
     discovered = approved = blocked = failed = 0
     max_pages = max_pages_override or profile.max_pages
+    use_sitemaps = bool(enable_sitemaps and profile.use_sitemaps)
 
     limiter = HostRateLimiter(rps=rps)
 
@@ -463,13 +622,13 @@ def run_crawl(profile: CrawlProfile, rps: float, enable_sitemaps: bool, max_page
     conn.autocommit = False
     try:
         with conn.cursor() as cur:
-            run_id = create_crawl_run(cur, profile.id, meta={"profile": profile.name, "enable_sitemaps": enable_sitemaps})
+            run_id = create_crawl_run(cur, profile.id, meta={"profile": profile.name, "enable_sitemaps": use_sitemaps})
 
             queue: Deque[Tuple[str, int, bool]] = deque()  # (url, depth, from_sitemap)
             seen: Set[str] = set()
 
             # Seed with sitemaps if enabled.
-            if enable_sitemaps:
+            if use_sitemaps:
                 for sm_url in discover_sitemaps(profile.allowed_domains):
                     try:
                         norm_sm = normalize_url(sm_url, strip_query=profile.strip_query)
@@ -496,7 +655,13 @@ def run_crawl(profile: CrawlProfile, rps: float, enable_sitemaps: bool, max_page
                 if not norm or norm in seen:
                     continue
 
-                allowed, reason = url_in_scope(norm, profile.allowed_domains, profile.allowed_path_prefixes, profile.deny_path_regex)
+                allowed, reason = url_in_scope(
+                    norm,
+                    profile.allowed_domains,
+                    profile.allowed_path_prefixes,
+                    profile.allowed_path_regex,
+                    profile.deny_path_regex,
+                )
                 status = "approved" if allowed else "blocked"
                 prio = compute_priority(norm, depth, from_sitemap)
 
@@ -544,7 +709,11 @@ def run_crawl(profile: CrawlProfile, rps: float, enable_sitemaps: bool, max_page
                         if can_norm and can_norm != norm:
                             # Store canonical URL mapping (as another target) and prefer it for future expansion.
                             can_allowed, can_reason = url_in_scope(
-                                can_norm, profile.allowed_domains, profile.allowed_path_prefixes, profile.deny_path_regex
+                                can_norm,
+                                profile.allowed_domains,
+                                profile.allowed_path_prefixes,
+                                profile.allowed_path_regex,
+                                profile.deny_path_regex,
                             )
                             can_status = "approved" if can_allowed else "blocked"
                             upsert_target(
@@ -577,7 +746,7 @@ def run_crawl(profile: CrawlProfile, rps: float, enable_sitemaps: bool, max_page
                 approved=approved,
                 blocked=blocked,
                 failed=failed,
-                meta={"max_pages": max_pages, "max_depth": profile.max_depth, "seen": len(seen)},
+                meta={"max_pages": max_pages, "max_depth": profile.max_depth, "seen": len(seen), "use_sitemaps": use_sitemaps},
             )
             conn.commit()
 
