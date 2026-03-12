@@ -186,8 +186,8 @@
       width: 58px;
       height: 58px;
       border-radius: 999px;
-      border: 2px solid #0f172a;
-      background: #1d4a97;
+      border: none;
+      background: #5e93eb;
       color: #fff;
       display: inline-flex;
       align-items: center;
@@ -202,6 +202,7 @@
     .launcher:hover {
       transform: translateY(-2px) scale(1.02);
       box-shadow: 0 20px 38px rgba(15, 23, 42, 0.33);
+      background: #4f86e2;
     }
 
     .launcher:active {
@@ -360,8 +361,9 @@
     }
 
     .closeGlyph {
-      font-size: 20px;
-      transform: translateY(-1px);
+      font-size: 18px;
+      transform: none;
+      line-height: 1;
     }
 
     .body {
@@ -609,7 +611,7 @@
       flex: 0 0 auto;
       border-radius: 12px;
       padding: 12px 14px;
-      background: #1d4a97;
+      background: #5e93eb;
       color: #fff;
       font-size: 13px;
       font-weight: 600;
@@ -618,7 +620,7 @@
     }
 
     .sendBtn:hover {
-      background: #173d7d;
+      background: #4f86e2;
       transform: translateY(-1px);
     }
 
@@ -769,7 +771,7 @@
 
       const subtitle = document.createElement('div');
       subtitle.className = 'subtitle';
-      subtitle.textContent = this._cfg.mode === 'admin' ? 'Admin mode enabled' : 'Ask about programs, courses, and requirements';
+      subtitle.textContent = this._cfg.mode === 'admin' ? 'Admin mode enabled' : 'Programs, courses, requirements';
 
       titleWrap.appendChild(title);
       titleWrap.appendChild(subtitle);
@@ -899,9 +901,10 @@
       if (isOpen) {
         const span = document.createElement('span');
         span.textContent = '×';
-        span.style.fontSize = '24px';
+        span.style.fontSize = '22px';
         span.style.lineHeight = '1';
-        span.style.transform = 'translateY(-1px)';
+        span.style.transform = 'none';
+        span.style.display = 'block';
         btn.appendChild(span);
       } else {
         const img = document.createElement('img');
@@ -917,7 +920,7 @@
       if (this._els.subtitle) {
         this._els.subtitle.textContent = this._cfg.mode === 'admin'
           ? 'Admin mode enabled'
-          : 'Ask about programs, courses, and requirements';
+          : 'Programs, courses, requirements';
       }
       if (this._els.hint) {
         this._els.hint.textContent = this._cfg.mode === 'admin'
