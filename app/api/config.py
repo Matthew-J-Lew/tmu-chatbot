@@ -52,6 +52,10 @@ REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
 CACHE_TTL_RESPONSE = _get_int("CACHE_TTL_RESPONSE", 21600)   # 6h
 CACHE_TTL_RETRIEVAL = _get_int("CACHE_TTL_RETRIEVAL", 21600) # 6h
 
+
+# ---- Conversational session state ----
+SESSION_TTL_SECONDS = _get_int("SESSION_TTL_SECONDS", 43200)  # 12h
+
 # ---- RAG tuning ----
 RAG_TOP_K = _get_int("RAG_TOP_K", 4)
 RAG_NUM_CANDIDATES = _get_int("RAG_NUM_CANDIDATES", 12)

@@ -3,10 +3,11 @@ Production API entrypoint for the TMU Faculty of Arts chatbot.
 
 High-level flow (non-technical explanation):
 1) A user asks a question.
-2) We look in a specialized database (RAG DB) to find the best official TMU text snippets.
-3) We build a strict prompt that tells the AI: "use only these snippets and cite them."
-4) We call the language model (Azure OpenAI or Ollama) to generate an answer.
-5) We return JSON: answer + sources + performance timings.
+2) We optionally rewrite the question using lightweight structured session state.
+3) We look in a specialized database (RAG DB) to find the best official TMU text snippets.
+4) We build a strict prompt that tells the AI: "use only these snippets and cite them."
+5) We call the language model (Azure OpenAI or Ollama) to generate an answer.
+6) We return JSON: answer + sources + performance timings.
 
 Production upgrades included:
 - Async Postgres pooling (fast DB queries)
@@ -15,15 +16,16 @@ Production upgrades included:
 - Concurrency limiting (prevents overload)
 - Prompt + output limits (reduces tail latency)
 - Optional streaming endpoint (/api/chat/stream)
+- Structured session state for safe follow-ups (no raw transcript dependency)
 """
 
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
-import os
 import re
 from time import perf_counter
 import asyncio
+from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -50,11 +52,13 @@ from app.api.config import (
 from app.api.db import init_db_pool, close_db_pool, get_pool
 from app.api.cache import init_redis, close_redis, make_cache_key, cache_get_json, cache_set_json
 from app.api.llm_client import init_llm_client, close_llm_client, generate, generate_stream
+from app.api.session_store import clear_session_state, load_session_state, save_session_state
+from app.api.turn_prep import TurnPrepResult, prepare_turn
 
 from app.rag.retrieval import retrieve
 
 
-app = FastAPI(title="TMU Faculty of Arts Chatbot API", version="3.0-prod")
+app = FastAPI(title="TMU Faculty of Arts Chatbot API", version="3.1-prod")
 
 # CORS is required for the web widget deployment.
 app.add_middleware(
@@ -109,6 +113,14 @@ _llm_semaphore = asyncio.Semaphore(MAX_CONCURRENT_LLM)
 
 class ChatRequest(BaseModel):
     question: str = Field(..., description="User's question for the TMU Arts chatbot.")
+    session_id: Optional[str] = Field(
+        None,
+        description="Stable client session identifier used for lightweight conversational state.",
+    )
+
+
+class SessionResetRequest(BaseModel):
+    session_id: str = Field(..., description="Stable client session identifier to clear.")
 
 
 class SourceItem(BaseModel):
@@ -146,6 +158,10 @@ class ChatParams(BaseModel):
 
 class AdminChatRequest(BaseModel):
     question: str = Field(..., description="User's question for the TMU Arts chatbot.")
+    session_id: Optional[str] = Field(
+        None,
+        description="Stable client session identifier used for lightweight conversational state.",
+    )
     params: Optional[ChatParams] = None
 
 
@@ -223,6 +239,14 @@ def sanitize_question(q: str) -> str:
     if len(q) > 500:
         raise HTTPException(status_code=400, detail="Question is too long (max 500 characters).")
     return q
+
+
+def sanitize_session_id(session_id: Optional[str]) -> str:
+    value = (session_id or "").strip()
+    if not value:
+        return f"ephemeral-{uuid4().hex}"
+    value = re.sub(r"[^A-Za-z0-9._:-]+", "-", value)
+    return value[:128]
 
 
 def redact_pii(text: str) -> str:
@@ -327,6 +351,53 @@ def build_messages_and_sources(
     return messages, sources
 
 
+async def prepare_session_turn(question: str, session_id: Optional[str]) -> TurnPrepResult:
+    resolved_session_id = sanitize_session_id(session_id)
+    state_before = await load_session_state(resolved_session_id)
+    result = prepare_turn(resolved_session_id, question, state_before)
+    await save_session_state(result.state_after)
+    return result
+
+
+def workflow_payload(answer: str, start_total: float, cache_ms: int = 0) -> Dict[str, Any]:
+    total_ms = int((perf_counter() - start_total) * 1000)
+    return {
+        "answer": answer,
+        "sources": [],
+        "latency_ms": total_ms,
+        "timings": {
+            "cache_ms": cache_ms,
+            "retrieve_ms": 0,
+            "prompt_ms": 0,
+            "llm_ms": 0,
+            "total_ms": total_ms,
+        },
+        "cached": False,
+    }
+
+
+async def retrieve_chunks(question: str) -> tuple[List[Dict[str, Any]], int]:
+    pool = get_pool()
+    start_retrieve = perf_counter()
+
+    ret_key = make_cache_key("ret", normalize_question(question))
+    cached_ret = await cache_get_json(ret_key)
+
+    if cached_ret and "chunks" in cached_ret:
+        chunks = cached_ret["chunks"]
+    else:
+        chunks = await retrieve(
+            pool=pool,
+            query=question,
+            k=RAG_TOP_K,
+            num_candidates=RAG_NUM_CANDIDATES,
+        )
+        await cache_set_json(ret_key, {"chunks": chunks}, CACHE_TTL_RETRIEVAL)
+
+    retrieve_ms = int((perf_counter() - start_retrieve) * 1000)
+    return chunks, retrieve_ms
+
+
 # -----------------------------
 # Endpoints
 # -----------------------------
@@ -336,21 +407,32 @@ async def healthz() -> Dict[str, str]:
     return {"status": "ok"}
 
 
+@app.post("/api/session/reset")
+async def reset_session(req: SessionResetRequest) -> Dict[str, str]:
+    session_id = sanitize_session_id(req.session_id)
+    await clear_session_state(session_id)
+    return {"status": "ok", "session_id": session_id}
+
+
 @app.post("/api/chat", response_model=ChatResponse)
 async def chat(req: ChatRequest) -> ChatResponse:
     start_total = perf_counter()
 
     q = sanitize_question(req.question)
-    nq = normalize_question(q)
+    turn = await prepare_session_turn(q, req.session_id)
+    effective_q = turn.effective_question
+    normalized_effective = normalize_question(effective_q)
+
+    if turn.workflow_reply:
+        return ChatResponse(**workflow_payload(turn.workflow_reply, start_total))
 
     # ---- Cache lookup (full response cache) ----
     start_cache = perf_counter()
-    resp_key = make_cache_key("resp", nq)
+    resp_key = make_cache_key("resp", normalized_effective)
     cached_resp = await cache_get_json(resp_key)
     cache_ms = int((perf_counter() - start_cache) * 1000)
 
     if cached_resp:
-        # Return cached response instantly
         cached_resp["timings"]["cache_ms"] = cache_ms
         cached_resp["timings"]["total_ms"] = int((perf_counter() - start_total) * 1000)
         cached_resp["latency_ms"] = cached_resp["timings"]["total_ms"]
@@ -358,28 +440,11 @@ async def chat(req: ChatRequest) -> ChatResponse:
         return ChatResponse(**cached_resp)
 
     # ---- Retrieval (cache retrieval separately) ----
-    pool = get_pool()
-    start_retrieve = perf_counter()
-
-    ret_key = make_cache_key("ret", nq)
-    cached_ret = await cache_get_json(ret_key)
-
-    if cached_ret and "chunks" in cached_ret:
-        chunks = cached_ret["chunks"]
-    else:
-        chunks = await retrieve(
-            pool=pool,
-            query=q,
-            k=RAG_TOP_K,
-            num_candidates=RAG_NUM_CANDIDATES,
-        )
-        await cache_set_json(ret_key, {"chunks": chunks}, CACHE_TTL_RETRIEVAL)
-
-    retrieve_ms = int((perf_counter() - start_retrieve) * 1000)
+    chunks, retrieve_ms = await retrieve_chunks(effective_q)
 
     # ---- Prompt building ----
     start_prompt = perf_counter()
-    messages, sources = build_messages_and_sources(q, chunks)
+    messages, sources = build_messages_and_sources(effective_q, chunks)
     prompt_ms = int((perf_counter() - start_prompt) * 1000)
 
     # ---- LLM call (rate-limited) ----
@@ -409,7 +474,7 @@ async def chat(req: ChatRequest) -> ChatResponse:
         "cached": False,
     }
 
-    # Cache the final response
+    # Cache the final response based on the effective question, not the raw user wording.
     await cache_set_json(resp_key, payload, CACHE_TTL_RESPONSE)
 
     return ChatResponse(**payload)
@@ -425,6 +490,22 @@ async def admin_chat(req: AdminChatRequest) -> AdminChatResponse:
     start_total = perf_counter()
 
     q = sanitize_question(req.question)
+    turn = await prepare_session_turn(q, req.session_id)
+    effective_q = turn.effective_question
+
+    if turn.workflow_reply:
+        payload = workflow_payload(turn.workflow_reply, start_total)
+        payload["debug"] = {
+            "intent": detect_intent(effective_q).dict(),
+            "retrieval": {
+                "top_k": 0,
+                "num_candidates": 0,
+                "rerank_enabled": bool(RERANK_ENABLED),
+                "items": [],
+            },
+            "model": model_debug_info().dict(),
+        }
+        return AdminChatResponse(**payload)
 
     # Params (fallback to env defaults)
     top_k = (req.params.top_k if req.params and req.params.top_k is not None else RAG_TOP_K)
@@ -432,17 +513,17 @@ async def admin_chat(req: AdminChatRequest) -> AdminChatResponse:
         req.params.num_candidates if req.params and req.params.num_candidates is not None else RAG_NUM_CANDIDATES
     )
 
-    intent = detect_intent(q)
+    intent = detect_intent(effective_q)
 
     # ---- Retrieval ----
     pool = get_pool()
     start_retrieve = perf_counter()
-    chunks = await retrieve(pool=pool, query=q, k=top_k, num_candidates=num_candidates)
+    chunks = await retrieve(pool=pool, query=effective_q, k=top_k, num_candidates=num_candidates)
     retrieve_ms = int((perf_counter() - start_retrieve) * 1000)
 
     # ---- Prompt building ----
     start_prompt = perf_counter()
-    messages, sources = build_messages_and_sources(q, chunks)
+    messages, sources = build_messages_and_sources(effective_q, chunks)
     prompt_ms = int((perf_counter() - start_prompt) * 1000)
 
     # ---- LLM call (rate-limited) ----
@@ -515,23 +596,27 @@ async def chat_stream(req: ChatRequest):
     - still uses retrieval and prompt rules
     """
     q = sanitize_question(req.question)
-    nq = normalize_question(q)
+    turn = await prepare_session_turn(q, req.session_id)
+    effective_q = turn.effective_question
+    normalized_effective = normalize_question(effective_q)
+
+    if turn.workflow_reply:
+        async def _workflow_iter():
+            yield turn.workflow_reply
+        return StreamingResponse(_workflow_iter(), media_type="text/plain")
 
     # If we already have a cached final response, stream it instantly
-    resp_key = make_cache_key("resp", nq)
+    resp_key = make_cache_key("resp", normalized_effective)
     cached_resp = await cache_get_json(resp_key)
     if cached_resp and "answer" in cached_resp:
         async def _cached_iter():
             # Safety: ensure cached responses are also redacted.
-            # (The non-streaming endpoint already redacts, but this keeps
-            # the streaming path consistent if the cache is ever populated
-            # by another caller.)
             yield redact_pii(str(cached_resp["answer"]))
         return StreamingResponse(_cached_iter(), media_type="text/plain")
 
     pool = get_pool()
-    chunks = await retrieve(pool=pool, query=q, k=RAG_TOP_K, num_candidates=RAG_NUM_CANDIDATES)
-    messages, _sources = build_messages_and_sources(q, chunks)
+    chunks = await retrieve(pool=pool, query=effective_q, k=RAG_TOP_K, num_candidates=RAG_NUM_CANDIDATES)
+    messages, _sources = build_messages_and_sources(effective_q, chunks)
 
     async def _iter():
         async with _llm_semaphore:

@@ -121,14 +121,19 @@
     const endpoint = mode === 'admin' ? '/admin/tools/chat' : '/api/chat';
     const url = base + endpoint;
 
-    // We keep the server contract simple: it only needs `question`.
-    // For admin calls, we allow optional params to tune retrieval.
+    // The backend now uses a lightweight structured session state.
+    // We still keep the request body minimal and avoid sending raw transcript history.
     const body = mode === 'admin'
-      ? { question, params: (options && options.params) ? options.params : undefined }
-      : { question };
+      ? {
+          question,
+          session_id: sessionId || undefined,
+          params: (options && options.params) ? options.params : undefined,
+        }
+      : {
+          question,
+          session_id: sessionId || undefined,
+        };
 
-    // sessionId is currently client-only, but useful for future analytics.
-    // (If you later add server-side session tracking, you can include it in headers.)
     return await postJson(url, body);
   }
 
