@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>TMU Arts Chatbot Public Widget Demo (v1)</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 24px; }
+    code { background: rgba(0,0,0,0.06); padding: 2px 6px; border-radius: 6px; }
+  </style>
+</head>
+<body>
+  <h1 style="margin-top:0">TMU Arts Chatbot Public Widget Demo</h1>
+  <p>
+    This page is served from the API container at <code>/widget/v1/demo-public.html</code>.
+    It loads the non-admin/public version of the widget.
+  </p>
+
+  <script src="./widget.js"></script>
+  <script>
+    const apiBaseUrl = window.location.origin;
+
+    window.TMUChatbot.init({
+      apiBaseUrl,
+      mode: 'public',
+      title: 'TMU Arts Chat',
+      enableCitations: true,
+      enableDebug: false,
+      initialPrompt: 'Hello! Welcome to the Faculty of Arts. What can I help you with today?'
+    });
+  </script>
+</body>
+</html>
