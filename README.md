@@ -447,7 +447,6 @@ docker-compose.yml
 - For some of the tuning knobs, there may be multiple instances of value assignment for them (one in docker-compose.yml, and another maybe in some python file). If updating the docker compose does not immediately change a tuning knob, search the repo for any other local instances.
 
 ## Major features todo:
-- Make the frontend widget to be placed on TMU webpages.
 - Make goldset faq, undergrad programs, graduate programs, departments, staff contact information tables and then the infrastructure for them
 - Adding an analytics table + dashboard, tracking question, intent, sources retrieved, answer given, confidence score, satisfaction: shows us what we're getting and what we need
 
@@ -462,16 +461,6 @@ docker-compose.yml
 - Graceful escalation "I may not have complete information, you may want to contact"
 
 ## Current task:
-Chat Widget:
-- Build it with a debug drawer that can be toggled on and off
-- A basic <ChatWidget apiBaseUrl="" mode="public|admin"/>
-- Takes: apiBaseUrl, title, initial prompt, enable citations, enable debug, default params
-- Adapter layer: sendMessage(query, sessionId, options) calls: /chat (public), /admin/tools/chat (debug mode)
-- MVP: Message list (user + assistant), loading indicator/streaming, citations (links), "copy answer", "reset chat" button
-- Admin: debug drawer on each assistant message showing: intent + confidence, retrieval top-k sources + scores, reranker on/off, latency + model used
-- be able to just stick it in a div, no global css, 
-- Backend: fastapi (what we already have), frontend: vanilla JS, dependency free web component with shadow DOM, a small init() api, and versioned script URLs
-
 Analytics Dashboard:
 1. Quality + trust section (is it answering well?):
   - % of answers that include verified citations
@@ -508,3 +497,6 @@ Analytics Dashboard:
     - Real conversation UI/widget shows: final answer, citations, confidence score, latency, model used
     - Debug drawer: detected intent + confidence, rewritten/decomposed queries, retrieved chunks list + scores, prompt metadata, cache hit/miss
   Implement using current endpoint but add a debug flag
+
+docker compose logs -f api
+docker compose exec redis redis-cli FLUSHALL
