@@ -359,6 +359,22 @@ def _rewrite_supported_question(question: str, state: SessionState) -> str:
     if explicit_program:
         return q
 
+    normalized = _normalize(q)
+    if _asks_for_undergraduate_programs(normalized):
+        if _asks_for_program_count(normalized):
+            return "How many undergraduate programs are offered by the TMU Faculty of Arts?"
+        return (
+            "List every undergraduate program offered by the TMU Faculty of Arts. "
+            "Include each program name exactly as shown on the Faculty of Arts undergraduate programs page."
+        )
+    if _asks_for_graduate_programs(normalized):
+        if _asks_for_program_count(normalized):
+            return "How many graduate programs are offered by the TMU Faculty of Arts?"
+        return (
+            "List every graduate program offered by the TMU Faculty of Arts. "
+            "Include each program name exactly if available."
+        )
+
     if state.program and _can_apply_program_context(state) and _is_referential_program_followup(q):
         return _resolve_program_referent(q, state.program)
 
@@ -420,6 +436,10 @@ def _asks_for_graduate_programs(q: str) -> bool:
         or "graduate programs" in q
         or bool(re.search(r"\blist all graduate programs\b", q))
     )
+
+
+def _asks_for_program_count(q: str) -> bool:
+    return bool(re.search(r"\bhow many\b", q)) or "number of" in q or "count of" in q
 
 
 def _asks_about_coop(q: str) -> bool:

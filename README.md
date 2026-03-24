@@ -149,23 +149,34 @@ docker compose up -d --build api
 
 ### Option A: crawl then ingest from the DB
 
-This is the “production-style” flow:
-1) crawl URLs into `crawl_targets`
-2) ingest approved targets from the DB
+This is the recommended production-style flow:
+1) crawl Arts pages into `crawl_targets`
+2) crawl Arts calendar pages into `crawl_targets`
+3) crawl curated TMU core pages into `crawl_targets`
+4) ingest approved targets from the DB profile-by-profile
 
 **Run the crawler** (uses `app/crawler/profiles.yaml`):
 ```bash
-docker compose --profile crawl run --rm crawler   python -m app.crawler.crawl --profile arts
+docker compose --profile crawl run --rm crawler python -m app.crawler.crawl --profile arts
+docker compose --profile crawl run --rm crawler python -m app.crawler.crawl --profile arts_calendar
+docker compose --profile crawl run --rm crawler python -m app.crawler.crawl --profile tmu_core
 ```
 
 **Then ingest from DB targets**:
 ```bash
-docker compose --profile ingest run --rm ingestion   python -m app.ingestion.ingest --mode db --profile arts --limit 200
+docker compose --profile ingest run --rm ingestion python -m app.ingestion.ingest --mode db --profile arts --limit 500
+docker compose --profile ingest run --rm ingestion python -m app.ingestion.ingest --mode db --profile arts_calendar --limit 500
+docker compose --profile ingest run --rm ingestion python -m app.ingestion.ingest --mode db --profile tmu_core --limit 500
 ```
+
+The scheduler container uses the same profile set by default:
+- `arts`
+- `arts_calendar`
+- `tmu_core`
 
 Verify:
 ```bash
-docker compose exec pg psql -U rag -d ragdb -c "SELECT status, COUNT(*) FROM crawl_targets GROUP BY status ORDER BY COUNT(*) DESC;"
+docker compose exec pg psql -U rag -d ragdb -c "SELECT p.name, t.status, COUNT(*) FROM crawl_targets t JOIN crawl_profiles p ON p.id = t.profile_id GROUP BY p.name, t.status ORDER BY p.name, COUNT(*) DESC;"
 docker compose exec pg psql -U rag -d ragdb -c "SELECT COUNT(*) FROM chunks;"
 ```
 
@@ -352,9 +363,14 @@ Set either TTL to `0` to effectively disable that cache.
 
 ### Ingestion chunking + embeddings (requires re-ingest if changed)
 Ingestion reads env vars (see `app/ingestion/ingest.py`):
-- `CHUNK_TOKEN_SIZE` (default 250)
-- `CHUNK_TOKEN_OVERLAP` (default 50)
+- `CHUNK_TOKEN_SIZE` (default 300)
+- `CHUNK_TOKEN_OVERLAP` (default 60)
 - `EMBED_MODEL_NAME` (default `sentence-transformers/all-MiniLM-L6-v2`)
+
+The HTML ingestion path is now section-aware:
+- it keeps heading paths in `chunks.section`
+- it preserves list/table blocks instead of flattening the whole page into one text blob
+- it expands rendered accordion content via Playwright when available, then chunks inside each section
 
 **Important:** the embedding model must match runtime query embedding in `app/rag/embeddings.py`
 (currently hard-coded to `sentence-transformers/all-MiniLM-L6-v2`, 384 dims).
@@ -451,13 +467,13 @@ docker-compose.yml
 - Adding an analytics table + dashboard, tracking question, intent, sources retrieved, answer given, confidence score, satisfaction: shows us what we're getting and what we need
 
 ## Minor features todo:
-- Change app/crawler/profiles.yaml to ingest more TMU webpages, not just the arts pages.
+- Continue tightening `tmu_core` so it stays evergreen and low-noise as the site changes.
 - Experiment with different prompt sizes, number of chunks, and chunk sizes, etc. to find out what the best balance is for each tuning knob in our specific case/dataset.
 - Add an answer formatting layer, tables for lists, numbered steps for procedures, bullet points for requirements, short summaries first, details after, sources at the end
 
 ## proposed todo:
 - Detect when a question asks for specific lists or information and either increase retrieved context, or fallback to tables.
-- Work on “smart ingestion”: chunk information based on headings / lists instead of raw text count.
+- Add page-type aware boosting so program pages / curriculum pages / admissions pages can be preferred for matching intents.
 - Graceful escalation "I may not have complete information, you may want to contact"
 
 ## Current task:

@@ -12,7 +12,7 @@ from app.pipeline.run_pipeline import _split_profiles, run_pipeline_once
 
 def main() -> None:
     """Run the pipeline forever with a fixed sleep interval."""
-    profiles = _split_profiles(os.getenv("PIPELINE_PROFILES", "arts"))
+    profiles = _split_profiles(os.getenv("PIPELINE_PROFILES", "arts,arts_calendar,tmu_core"))
     interval = int(os.getenv("PIPELINE_INTERVAL_SECONDS", "21600"))  # 6 hours
     crawl_rps = float(os.getenv("CRAWL_RPS", "1.0"))
     enable_sitemaps = os.getenv("CRAWL_ENABLE_SITEMAPS", "true").lower() in {"1", "true", "yes"}

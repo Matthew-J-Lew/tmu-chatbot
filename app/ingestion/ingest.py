@@ -6,6 +6,7 @@ For production crawling, it can read approved URLs from the crawl_targets table 
 
 import argparse
 import hashlib
+import html as htmlmod
 import io
 import os
 import re
@@ -20,6 +21,8 @@ import requests
 import tiktoken
 import yaml
 from bs4 import BeautifulSoup
+
+from app.ingestion.html_sections import extract_html_document, flatten_document_text
 
 # Optional JS-rendering support for modern sites
 try:
@@ -293,6 +296,7 @@ def fetch_remote_with_fallback(
 
     def _make_result(*, raw: Optional[bytes], status_code: int, final_url: str, headers: dict, fetcher: str,
                      parsed_title: Optional[str] = None, parsed_text: Optional[str] = None,
+                     parsed_document: Optional[dict] = None,
                      extracted_chars: Optional[int] = None, note: Optional[str] = None) -> dict:
         duration_ms = int((time.time() - started) * 1000)
         out = {
@@ -307,6 +311,8 @@ def fetch_remote_with_fallback(
             out["parsed_title"] = parsed_title
         if parsed_text is not None:
             out["parsed_text"] = parsed_text
+        if parsed_document is not None:
+            out["parsed_document"] = parsed_document
         if extracted_chars is not None:
             out["extracted_chars"] = int(extracted_chars)
         if note:
@@ -322,7 +328,8 @@ def fetch_remote_with_fallback(
         ctype = headers_pw.get("content-type") or headers_pw.get("Content-Type") or ""
         final_url = meta_pw.get("final_url") or url
         # Pre-parse HTML to reuse later
-        title, text = clean_html(raw_pw.decode("utf-8", errors="ignore"), final_url)
+        document = extract_html_document(raw_pw.decode("utf-8", errors="ignore"), final_url)
+        title, text = document.title, flatten_document_text(document)
         return _make_result(
             raw=raw_pw,
             status_code=int(meta_pw.get("status_code") or 200),
@@ -331,6 +338,7 @@ def fetch_remote_with_fallback(
             fetcher="playwright",
             parsed_title=title,
             parsed_text=text,
+            parsed_document={"title": document.title, "blocks": [{"section": b.section, "kind": b.kind, "text": b.text} for b in document.blocks]},
             extracted_chars=len(text),
             note="playwright_always",
         )
@@ -348,13 +356,16 @@ def fetch_remote_with_fallback(
         # Decide whether we should render with Playwright.
         wants_playwright = False
         parsed_title = parsed_text = None
+        parsed_document = None
         extracted_chars = None
 
         if INGEST_USE_PLAYWRIGHT and INGEST_PLAYWRIGHT_FALLBACK and pw and pw.enabled:
             # Only attempt for likely-HTML.
             if guess_type_from_url(final_url, cth) == "html":
                 try:
-                    parsed_title, parsed_text = clean_html(raw.decode("utf-8", errors="ignore"), final_url)
+                    document = extract_html_document(raw.decode("utf-8", errors="ignore"), final_url)
+                    parsed_title, parsed_text = document.title, flatten_document_text(document)
+                    parsed_document = {"title": document.title, "blocks": [{"section": b.section, "kind": b.kind, "text": b.text} for b in document.blocks]}
                     extracted_chars = len(parsed_text)
                     if extracted_chars < INGEST_MIN_EXTRACTED_CHARS:
                         wants_playwright = True
@@ -372,7 +383,8 @@ def fetch_remote_with_fallback(
                 meta_pw = meta_pw or {}
                 headers_pw = meta_pw.get("headers") or {}
                 final_pw = meta_pw.get("final_url") or url
-                title_pw, text_pw = clean_html(raw_pw.decode("utf-8", errors="ignore"), final_pw)
+                document_pw = extract_html_document(raw_pw.decode("utf-8", errors="ignore"), final_pw)
+                title_pw, text_pw = document_pw.title, flatten_document_text(document_pw)
                 if len(text_pw) >= (extracted_chars or 0):
                     return _make_result(
                         raw=raw_pw,
@@ -382,6 +394,7 @@ def fetch_remote_with_fallback(
                         fetcher="playwright",
                         parsed_title=title_pw,
                         parsed_text=text_pw,
+                        parsed_document={"title": document_pw.title, "blocks": [{"section": b.section, "kind": b.kind, "text": b.text} for b in document_pw.blocks]},
                         extracted_chars=len(text_pw),
                         note="playwright_fallback",
                     )
@@ -397,6 +410,7 @@ def fetch_remote_with_fallback(
             fetcher="requests",
             parsed_title=parsed_title,
             parsed_text=parsed_text,
+            parsed_document=parsed_document,
             extracted_chars=extracted_chars,
         )
 
@@ -407,7 +421,8 @@ def fetch_remote_with_fallback(
             meta_pw = meta_pw or {}
             headers_pw = meta_pw.get("headers") or {}
             final_pw = meta_pw.get("final_url") or url
-            title_pw, text_pw = clean_html(raw_pw.decode("utf-8", errors="ignore"), final_pw)
+            document_pw = extract_html_document(raw_pw.decode("utf-8", errors="ignore"), final_pw)
+            title_pw, text_pw = document_pw.title, flatten_document_text(document_pw)
             return _make_result(
                 raw=raw_pw,
                 status_code=int(meta_pw.get("status_code") or 200),
@@ -416,6 +431,7 @@ def fetch_remote_with_fallback(
                 fetcher="playwright",
                 parsed_title=title_pw,
                 parsed_text=text_pw,
+                parsed_document={"title": document_pw.title, "blocks": [{"section": b.section, "kind": b.kind, "text": b.text} for b in document_pw.blocks]},
                 extracted_chars=len(text_pw),
                 note=f"playwright_after_requests_error:{_classify_exception(e)}",
             )
@@ -708,7 +724,7 @@ def insert_chunk(cur, source_id: int, url: str, section: Optional[str], chunk_te
         VALUES (%s, %s, %s, %s, %s, %s::vector, to_tsvector('english', %s), %s)
         ON CONFLICT (url, chunk_md5) DO NOTHING;
         """,
-        (source_id, section, url, chunk_text_, tokens, emb, chunk_text_, chunk_md5),
+        (source_id, section, url, chunk_text_, tokens, emb, f"{section}\n\n{chunk_text_}" if section else chunk_text_, chunk_md5),
     )
 
 
@@ -735,6 +751,7 @@ def ingest_html_or_pdf(
     fetcher: str = "requests",
     parsed_title: Optional[str] = None,
     parsed_text: Optional[str] = None,
+    parsed_document: Optional[dict] = None,
 ) -> Tuple[int, bool, int]:
     """Ingest an HTML/PDF document.
 
@@ -750,10 +767,20 @@ def ingest_html_or_pdf(
         title = final_url.split("/")[-1] or "PDF"
         content_type = "pdf"
     else:
-        if parsed_title is not None and parsed_text is not None:
+        blocks = None
+        if parsed_document is not None:
+            parsed_document = parsed_document or {}
+            title = parsed_document.get("title") or parsed_title or final_url
+            raw_blocks = parsed_document.get("blocks") or []
+            blocks = [b for b in raw_blocks if isinstance(b, dict)]
+            text = parsed_text if parsed_text is not None else "\n\n".join((b.get("text") or "") for b in blocks).strip()
+        elif parsed_title is not None and parsed_text is not None:
             title, text = parsed_title, parsed_text
         else:
-            title, text = clean_html(raw.decode("utf-8", errors="ignore"), final_url)
+            document = extract_html_document(raw.decode("utf-8", errors="ignore"), final_url)
+            title = document.title
+            blocks = [{"section": b.section, "kind": b.kind, "text": b.text} for b in document.blocks]
+            text = flatten_document_text(document)
         content_type = "html"
 
     extracted_chars = len(text)
@@ -792,15 +819,29 @@ def ingest_html_or_pdf(
     if replace_chunks:
         delete_chunks_for_source(cur, source_id)
 
-    sections = list(chunk_text(text))
-    if not sections:
+    if content_type == "html" and blocks is not None:
+        rows = []
+        for block in blocks:
+            if not isinstance(block, dict):
+                continue
+            section = ((block.get("section") or title or "").strip()[:240]) or None
+            block_text = (block.get("text") or "").strip()
+            if not block_text:
+                continue
+            for chunk_str in chunk_text(block_text):
+                embed_text = f"{section}\n\n{chunk_str}" if section else chunk_str
+                rows.append((section, chunk_str, embed_text))
+    else:
+        rows = [(None, chunk_str, chunk_str) for chunk_str in chunk_text(text)]
+
+    if not rows:
         return 0, changed, extracted_chars
 
-    embs = embed_texts(sections)
+    embs = embed_texts([embed_text for _section, _chunk, embed_text in rows])
     inserted = 0
-    for chunk_str, emb in zip(sections, embs):
+    for (section, chunk_str, _embed_text), emb in zip(rows, embs):
         tokens = approx_token_len(chunk_str)
-        insert_chunk(cur, source_id, final_url, section=None, chunk_text_=chunk_str, tokens=tokens, embedding=emb)
+        insert_chunk(cur, source_id, final_url, section=section, chunk_text_=chunk_str, tokens=tokens, embedding=emb)
         inserted += 1
 
     return inserted, changed, extracted_chars
@@ -942,6 +983,7 @@ def ingest_entry(cur, entry: dict, pw: Optional[PlaywrightFetcher] = None) -> Tu
         fetcher=res.get("fetcher", "requests"),
         parsed_title=res.get("parsed_title"),
         parsed_text=res.get("parsed_text"),
+        parsed_document=res.get("parsed_document"),
     )
     return added, changed
 
@@ -1122,6 +1164,7 @@ def run_db_mode(cur, profile_name: str, limit: int, sleep_seconds: float) -> Non
                     fetcher=res.get("fetcher", "requests"),
                     parsed_title=res.get("parsed_title"),
                     parsed_text=res.get("parsed_text"),
+                    parsed_document=res.get("parsed_document"),
                 )
 
                 # Keep crawl_targets fresh with change detection signals.
