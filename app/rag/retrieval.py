@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Sequence
 import re
 
 import asyncpg
@@ -9,9 +9,6 @@ from app.rag.embeddings import embed_query
 from app.rag.reranker import rerank
 
 from app.api.config import HYBRID_WEIGHT_TEXT, HYBRID_WEIGHT_VECTOR, RERANK_ENABLED
-
-# NOTE: RERANK_ENABLED and hybrid weights come from app.api.config so they can be
-# centrally validated and controlled via .env / docker-compose.
 
 
 async def retrieve_candidates(
@@ -31,9 +28,6 @@ async def retrieve_candidates(
     """
 
     q_emb = embed_query(query)
-
-    # Convert Python list[float] -> pgvector text literal
-    # Example: "[0.123, -0.456, ...]"
     q_emb_str = "[" + ",".join(f"{x:.6f}" for x in q_emb) + "]"
 
     rows = await pool.fetch(
@@ -50,7 +44,7 @@ async def retrieve_candidates(
         FROM rag_hybrid_search($1, $2::vector, $3, $4, $5)
         """,
         query,
-        q_emb_str,  # <- IMPORTANT: string, not list
+        q_emb_str,
         k,
         HYBRID_WEIGHT_VECTOR,
         HYBRID_WEIGHT_TEXT,
@@ -67,6 +61,7 @@ def _normalize_query(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
+
 def _is_arts_undergrad_program_list_query(query: str) -> bool:
     q = _normalize_query(query)
     if "graduate" in q:
@@ -76,38 +71,92 @@ def _is_arts_undergrad_program_list_query(query: str) -> bool:
     return asks_undergrad_programs and asks_for_list
 
 
+
+def _is_arts_grad_program_list_query(query: str) -> bool:
+    q = _normalize_query(query)
+    asks_grad_programs = "graduate program" in q or "graduate programs" in q
+    asks_for_list = any(token in q for token in ("list", "every", "all", "which", "what are", "include each program name", "include every program name"))
+    return asks_grad_programs and asks_for_list
+
+
+
+def _is_program_list_query(query: str) -> bool:
+    return _is_arts_undergrad_program_list_query(query) or _is_arts_grad_program_list_query(query)
+
+
+
+def _count_numbered_items(text: str) -> int:
+    return len(re.findall(r"(?:^|\n)\s*\d+\.\s", text))
+
+
+
+def _count_program_name_markers(text: str) -> int:
+    return len(re.findall(r"\b[A-Z][A-Za-z&,'()\-/ ]+\s-\sB[A-Za-z ]+\b", text))
+
+
+
+def _is_answer_bearing_program_list_chunk(cand: Dict[str, Any]) -> bool:
+    chunk = cand.get("chunk") or ""
+    return _count_numbered_items(chunk) >= 6 or _count_program_name_markers(chunk) >= 6
+
+
+
+def _is_count_only_program_chunk(cand: Dict[str, Any]) -> bool:
+    chunk = (cand.get("chunk") or "").lower()
+    if _is_answer_bearing_program_list_chunk(cand):
+        return False
+    return "undergraduate programs" in chunk or "graduate programs" in chunk
+
+
+
+def _preferred_program_list_url(query: str) -> str | None:
+    if _is_arts_undergrad_program_list_query(query):
+        return "/arts/undergraduate/programs"
+    if _is_arts_grad_program_list_query(query):
+        return "/arts/graduate/graduate-programs"
+    return None
+
+
+
 def _program_list_bonus(query: str, cand: Dict[str, Any], use_rerank: bool = False) -> float:
-    if not _is_arts_undergrad_program_list_query(query):
+    preferred_url = _preferred_program_list_url(query)
+    if not preferred_url:
         return 0.0
 
     url = (cand.get("chunk_url") or cand.get("source_url") or "").lower()
+    source_url = (cand.get("source_url") or "").lower()
     section = (cand.get("section") or "").lower()
     chunk = (cand.get("chunk") or "").lower()
 
     bonus = 0.0
-    if "/arts/undergraduate/programs" in url:
-        bonus += 6.0
-    if section in {"explore program options", "undergraduate programs"}:
-        bonus += 2.5
-    if "faculty of arts" in chunk and "undergraduate program" in chunk:
-        bonus += 1.0
-    if len(re.findall(r"\b\d+\.\s", chunk)) >= 8 and "/arts/undergraduate/programs" in url:
+    is_preferred_page = preferred_url in url or preferred_url in source_url
+    if is_preferred_page:
         bonus += 4.0
+    if section in {"explore program options", "undergraduate programs", "graduate programs"}:
+        bonus += 1.5
+    if is_preferred_page and _is_answer_bearing_program_list_chunk(cand):
+        bonus += 8.0
+    if is_preferred_page and _is_count_only_program_chunk(cand):
+        bonus += 2.0
 
-    # Penalize unrelated list pages that now share similar wording.
-    if "official program list" in chunk and "/arts/undergraduate/programs" not in url:
-        bonus -= 5.0
+    # Prefer chunks whose sections or text mention Faculty of Arts explicitly.
+    if "faculty of arts" in chunk or "faculty of arts" in section:
+        bonus += 0.5
+
+    # Penalize unrelated list pages that happen to contain many numbered items.
     if any(noisy in url for noisy in (
         "/student-financial-assistance/",
         "/admissions/undergraduate/requirements/",
         "/admissions/undergraduate/apply/document-submission/faq/",
     )):
+        bonus -= 3.0
+    if "/curriculum-advising/" in url and not is_preferred_page:
+        bonus -= 2.0
+    if not is_preferred_page and _count_numbered_items(chunk) >= 3:
         bonus -= 2.5
-    if "/curriculum-advising/" in url and "/arts/undergraduate/programs" not in url:
-        bonus -= 1.5
 
-    # After rerank, keep the heuristic effect a bit smaller but still decisive.
-    return bonus * (0.5 if use_rerank else 1.0)
+    return bonus * (0.6 if use_rerank else 1.0)
+
 
 
 def _apply_query_specific_boosts(query: str, candidates: List[Dict[str, Any]], use_rerank: bool = False) -> List[Dict[str, Any]]:
@@ -125,6 +174,70 @@ def _apply_query_specific_boosts(query: str, candidates: List[Dict[str, Any]], u
     return candidates
 
 
+
+def _pick_diverse_chunks(candidates: Sequence[Dict[str, Any]], k: int) -> List[Dict[str, Any]]:
+    selected: List[Dict[str, Any]] = []
+    seen_ids = set()
+    for cand in candidates:
+        cid = cand.get("id")
+        if cid in seen_ids:
+            continue
+        selected.append(cand)
+        seen_ids.add(cid)
+        if len(selected) >= k:
+            break
+    return selected
+
+
+
+def _pick_program_list_chunks(query: str, candidates: Sequence[Dict[str, Any]], k: int) -> List[Dict[str, Any]]:
+    preferred_url = _preferred_program_list_url(query)
+    if not preferred_url:
+        return _pick_diverse_chunks(candidates, k)
+
+    selected: List[Dict[str, Any]] = []
+    selected_ids = set()
+    per_source: dict[str, int] = {}
+    max_from_same_source = 3
+
+    def add_candidate(cand: Dict[str, Any]) -> bool:
+        cid = cand.get("id")
+        if cid in selected_ids:
+            return False
+        source = cand.get("source_url") or cand.get("chunk_url") or ""
+        if per_source.get(source, 0) >= max_from_same_source:
+            return False
+        selected.append(cand)
+        selected_ids.add(cid)
+        per_source[source] = per_source.get(source, 0) + 1
+        return True
+
+    preferred_candidates = [
+        cand for cand in candidates
+        if preferred_url in ((cand.get("source_url") or cand.get("chunk_url") or "").lower())
+    ]
+
+    # First, lock in the answer-bearing list chunk from the preferred page.
+    for cand in preferred_candidates:
+        if _is_answer_bearing_program_list_chunk(cand):
+            add_candidate(cand)
+            break
+
+    # Then add up to two more supporting chunks from the same page (count/overview + strong page context).
+    for cand in preferred_candidates:
+        if len(selected) >= min(k, max_from_same_source):
+            break
+        add_candidate(cand)
+
+    # Fill the rest using the overall reranked list, still allowing a small amount of same-source clustering.
+    for cand in candidates:
+        if len(selected) >= k:
+            break
+        add_candidate(cand)
+
+    return selected
+
+
 async def retrieve(
     pool: asyncpg.Pool,
     query: str,
@@ -138,14 +251,19 @@ async def retrieve(
     - Keep this fast and stable.
     - Reduce reranker load (num_candidates defaults lower than dev).
     - Allow reranking to be disabled via env var.
+    - For list/composite questions, allow a small number of chunks from the same
+      official source page so the model can see the answer-bearing list and its context.
     """
     candidates = await retrieve_candidates(pool, query, k=num_candidates)
     candidates = _apply_query_specific_boosts(query, candidates, use_rerank=False)
 
     if not RERANK_ENABLED:
-        return candidates[:k]
+        if _is_program_list_query(query):
+            return _pick_program_list_chunks(query, candidates, k)
+        return _pick_diverse_chunks(candidates, k)
 
-    # Cross-encoder rerank
     reranked = rerank(query, candidates, top_k=len(candidates))
     reranked = _apply_query_specific_boosts(query, reranked, use_rerank=True)
-    return reranked[:k]
+    if _is_program_list_query(query):
+        return _pick_program_list_chunks(query, reranked, k)
+    return _pick_diverse_chunks(reranked, k)

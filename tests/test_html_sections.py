@@ -69,19 +69,21 @@ def test_extract_html_document_handles_accordion_panels_as_hard_sections():
     assert "Criminology - BA (Hons)" in sections
     assert "Customize your degree" in sections
 
-    summary = next(b for b in doc.blocks if b.section == "Explore program options")
-    assert "Official program list:" in summary.text
+    summary = next(b for b in doc.blocks if b.kind == "accordion_summary")
+    assert summary.section == "Explore program options"
+    assert "13 undergraduate programs" in summary.text
     assert "1. Arts and Contemporary Studies - BA (Hons)" in summary.text
     assert "2. Criminology - BA (Hons)" in summary.text
+    assert "Official program list" not in summary.text
 
-    arts = next(b for b in doc.blocks if b.section == "Arts and Contemporary Studies - BA (Hons)")
+    arts = next(b for b in doc.blocks if b.section == "Arts and Contemporary Studies - BA (Hons)" and b.kind == "accordion_panel")
     assert "Shape your future" in arts.text
     assert "Content Specialist" in arts.text
     assert "Explore program requirements" not in arts.text
     assert "Three students sit at a white table" not in arts.text
     assert "Criminology - BA (Hons)" not in arts.text
 
-    crim = next(b for b in doc.blocks if b.section == "Criminology - BA (Hons)")
+    crim = next(b for b in doc.blocks if b.section == "Criminology - BA (Hons)" and b.kind == "accordion_panel")
     assert "Are you passionate" in crim.text
     assert "Court Reporter" in crim.text
     assert "12-16" in crim.text
