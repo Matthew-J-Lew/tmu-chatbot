@@ -190,6 +190,7 @@ def test_course_planning_flow_asks_for_program_then_year_then_builds_calendar_qu
     assert "Criminology" in third.effective_question
     assert "first year" in third.effective_question.lower()
     assert "curriculum tables" in third.effective_question.lower()
+    assert "avoid combined-program or other-program arts calendar pages" in third.effective_question.lower()
     assert third.state_after.study_year == "first year"
 
 
@@ -229,6 +230,7 @@ def test_one_shot_course_planning_question_builds_same_calendar_query_and_state(
     assert "Criminology" in result.effective_question
     assert "first year" in result.effective_question.lower()
     assert "curriculum tables" in result.effective_question.lower()
+    assert "avoid combined-program or other-program arts calendar pages" in result.effective_question.lower()
 
 
 def test_program_declaration_reply_uses_ascii_safe_text():

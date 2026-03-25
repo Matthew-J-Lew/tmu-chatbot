@@ -219,6 +219,22 @@ def _is_sibling_program_calendar_url(url: str, program_slug: Optional[str]) -> b
     return sibling_prefix in url or sibling_suffix in url
 
 
+def _extract_arts_calendar_program_slug(url: str) -> Optional[str]:
+    m = re.search(r"/calendar/\d{4}-\d{4}/programs/arts/([^/]+)", url)
+    if not m:
+        return None
+    return m.group(1)
+
+
+def _is_other_arts_calendar_program_url(url: str, program_slug: Optional[str]) -> bool:
+    if not program_slug:
+        return False
+    other_slug = _extract_arts_calendar_program_slug(url)
+    if not other_slug:
+        return False
+    return other_slug != program_slug
+
+
 def _table_bias(policy: RetrievalPolicy, url: str, section: str, chunk: str, scale: float) -> float:
     if policy.label not in {"COURSE_PLANNING_CALENDAR", "PROGRAM_REQUIREMENTS_CALENDAR"}:
         return 0.0
@@ -226,30 +242,35 @@ def _table_bias(policy: RetrievalPolicy, url: str, section: str, chunk: str, sca
     bonus = 0.0
     exact_program = _is_exact_program_calendar_url(url, policy.program_slug)
     sibling_program = _is_sibling_program_calendar_url(url, policy.program_slug)
+    other_program = _is_other_arts_calendar_program_url(url, policy.program_slug)
+    is_table_url = url.endswith('/table_i') or url.endswith('/table_ii')
 
     if exact_program:
-        bonus += 6.0 * scale
+        bonus += 7.0 * scale
     if sibling_program:
-        bonus -= 7.0 * scale
+        bonus -= 12.0 * scale
+    elif other_program:
+        bonus -= 8.0 * scale
 
-    if exact_program and (url.endswith('/table_i') or url.endswith('/table_ii')):
-        bonus += 8.0 * scale
-    elif url.endswith('/table_i') or url.endswith('/table_ii'):
-        bonus += 2.0 * scale
+    if exact_program and is_table_url:
+        bonus += 12.0 * scale
+    elif is_table_url and other_program:
+        bonus -= 5.0 * scale
 
-    if exact_program and any(term in section for term in (
-        'required group', 'core elective', 'table i', 'table ii', 'full-time, four-year program',
-        'full-time, five-year co-op program', 'program overview/curriculum information',
-    )):
-        bonus += 3.0 * scale
+    if exact_program and 'full-time, four-year program' in section:
+        bonus += 5.0 * scale
+    if exact_program and 'full-time, five-year co-op program' in section:
+        bonus -= 4.5 * scale if policy.label == 'COURSE_PLANNING_CALENDAR' else 1.0 * scale
+    if exact_program and any(term in section for term in ('required group', 'core elective', 'table i', 'table ii')):
+        bonus += 7.0 * scale
 
-    # For course planning, exact table/group content should outrank overview prose.
     if policy.label == 'COURSE_PLANNING_CALENDAR':
-        if exact_program and any(term in section for term in ('required group', 'table i', 'table ii', 'core elective')):
-            bonus += 6.0 * scale
         if exact_program and 'program overview/curriculum information' in section:
-            bonus -= 1.5 * scale
+            bonus -= 3.0 * scale
         if 'academic year:' in chunk and 'program:' in chunk and exact_program:
+            bonus += 2.0 * scale
+    else:
+        if exact_program and 'program overview/curriculum information' in section:
             bonus += 2.0 * scale
 
     return bonus
@@ -287,6 +308,30 @@ def _apply_policy_preferences(candidates: List[Dict[str, Any]], policy: Optional
     return candidates
 
 
+def _suppress_other_program_pages(candidates: List[Dict[str, Any]], policy: Optional[RetrievalPolicy]) -> List[Dict[str, Any]]:
+    if not candidates or policy is None:
+        return candidates
+    if policy.label not in {"COURSE_PLANNING_CALENDAR", "PROGRAM_REQUIREMENTS_CALENDAR"} or not policy.program_slug:
+        return candidates
+
+    exact_family_count = 0
+    for cand in candidates:
+        url = _canonical_url(cand.get('chunk_url') or cand.get('source_url') or '')
+        if _is_exact_program_calendar_url(url, policy.program_slug):
+            exact_family_count += 1
+
+    if exact_family_count < 2:
+        return candidates
+
+    kept: List[Dict[str, Any]] = []
+    for cand in candidates:
+        url = _canonical_url(cand.get('chunk_url') or cand.get('source_url') or '')
+        if _is_other_arts_calendar_program_url(url, policy.program_slug):
+            continue
+        kept.append(cand)
+    return kept
+
+
 def _enforce_same_source_limit(candidates: List[Dict[str, Any]], limit: int) -> List[Dict[str, Any]]:
     if limit <= 0:
         return candidates
@@ -315,6 +360,7 @@ async def retrieve(
     candidates = await retrieve_candidates(pool, query, k=num_candidates)
     candidates = _apply_query_specific_boosts(query, candidates, use_rerank=False)
     candidates = _apply_policy_preferences(candidates, policy, use_rerank=False)
+    candidates = _suppress_other_program_pages(candidates, policy)
 
     if not RERANK_ENABLED:
         limited = _enforce_same_source_limit(candidates, policy.same_source_limit if policy else 1)
@@ -323,5 +369,6 @@ async def retrieve(
     reranked = rerank(query, candidates, top_k=len(candidates))
     reranked = _apply_query_specific_boosts(query, reranked, use_rerank=True)
     reranked = _apply_policy_preferences(reranked, policy, use_rerank=True)
+    reranked = _suppress_other_program_pages(reranked, policy)
     limited = _enforce_same_source_limit(reranked, policy.same_source_limit if policy else 1)
     return limited[:k]

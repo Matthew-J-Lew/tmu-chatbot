@@ -1,0 +1,927 @@
+==================================================
+What courses should I pick for Criminology third year?
+==================================================
+{
+    "answer":  "A third-year student in the Criminology program at TMU Faculty of Arts following the standard full-time, four-year program should take the following courses:\n\n**Required Courses:**\n- CRM 200 Criminal Law  \n- CRM 300 Policing in Canada  \n- CRM 306 Corrections in Canada  \n- CRM 308 Criminal Courts in Canada  \n\n**Required Group 1 (choose four courses from Table I):**\n- CRM 202 Victims and The Criminal Process  \n- CRM 205 Gender, Sexuality and The Law  \n- CRM 206 Race, Ethnicity and Justice  \n- CRM 250 Criminalizing Blackness  \n- CRM 402 Criminal Justice and Social Inequality  \n\n**Required Group 2 (choose one):**\n- CRM 310 Advanced Qualitative Research Methods  \n- CRM 315 Advanced Quantitative Research Methods  \n\n**Other Required Courses:**\n- CRM 322 Ethics in Criminal Justice  \n\n**Liberal Studies:**\n- Two courses from Table B - Upper Level Liberal Studies  \n\n**Core Electives:**\n- Two courses from Table II  \n\n**Open Electives:**\n- Two Open Electives  \n\nThis curriculum is detailed in the Full-Time, Four-Year Program section of the Criminology calendar pages [4], [5].  \n\nNote: CRM 100 and CRM 102 are first-year required courses and should already be completed by third year [1], [4].  \n\nCo-op is optional and typically extends the program to five years; the standard four-year path does not require co-op courses [3], [6].",
+    "sources":  [
+                    {
+                        "id":  1,
+                        "url":  "https://www.torontomu.ca/calendar/2025-2026/programs/arts/criminology/table_i/",
+                        "title":  "https://www.torontomu.ca/calendar/2025-2026/programs/arts/criminology/table_i/",
+                        "section":  "Criminology Required Group 1 - Table I"
+                    },
+                    {
+                        "id":  2,
+                        "url":  "https://www.torontomu.ca/calendar/2025-2026/programs/arts/criminology/",
+                        "title":  "https://www.torontomu.ca/calendar/2025-2026/programs/arts/criminology/",
+                        "section":  "Program Overview/Curriculum Information"
+                    },
+                    {
+                        "id":  3,
+                        "url":  "https://www.torontomu.ca/career-coop-student-success/career-coop/coop/how-to-apply/",
+                        "title":  "https://www.torontomu.ca/career-coop-student-success/career-coop/coop/how-to-apply/",
+                        "section":  "Apply for Co-op"
+                    },
+                    {
+                        "id":  4,
+                        "url":  "https://www.torontomu.ca/current-students/course-enrolment/course-intentions/",
+                        "title":  "https://www.torontomu.ca/current-students/course-enrolment/course-intentions/",
+                        "section":  "Understand your curriculum requirements"
+                    },
+                    {
+                        "id":  5,
+                        "url":  "https://www.torontomu.ca/arts/undergraduate/programs/",
+                        "title":  "https://www.torontomu.ca/arts/undergraduate/programs/",
+                        "section":  "Co-op opportunities"
+                    },
+                    {
+                        "id":  6,
+                        "url":  "https://www.torontomu.ca/myservicehub-support/students/academics/advisement-report/",
+                        "title":  "https://www.torontomu.ca/myservicehub-support/students/academics/advisement-report/",
+                        "section":  "Full-Time Undergraduate Degree Students"
+                    }
+                ],
+    "latency_ms":  5767,
+    "timings":  {
+                    "cache_ms":  0,
+                    "retrieve_ms":  1091,
+                    "prompt_ms":  0,
+                    "llm_ms":  4673,
+                    "total_ms":  5767
+                },
+    "cached":  false
+}
+
+==================================================
+What courses should I pick for Criminology fourth year?
+==================================================
+{
+    "answer":  "A fourth-year student in the Criminology program at TMU Faculty of Arts following the standard full-time, four-year path should take the following courses according to the 2025-2026 undergraduate calendar:\n\n**Required Courses:**\n- CRM 406 Seminar in Criminal Justice\n\n**Liberal Studies:**\n- Two courses from Table B - Upper Level Liberal Studies\n\n**Core Electives:**\n- Five courses from Table II\n\n**Open Electives:**\n- Two Open Electives\n\nThis is in addition to previously required courses in earlier years, including but not limited to CRM 100, CRM 102, SSH 105, SSH 205, CRM 204, CRM 400, SSH 301, and various Required Group 1 and Group 2 Criminology courses taken in earlier years [4][5].\n\nNote: The co-op option extends the program to five years and includes additional requirements, but the standard four-year program 
+does not require co-op courses [3][6].\n\nFor exact course lists in Table I (Required Group 1) and Table II (Core Electives), students should refer to the Criminology Table I and Table II pages in the calendar [1][2][4][5].",
+    "sources":  [
+                    {
+                        "id":  1,
+                        "url":  "https://www.torontomu.ca/calendar/2025-2026/programs/arts/criminology/table_i/",
+                        "title":  "https://www.torontomu.ca/calendar/2025-2026/programs/arts/criminology/table_i/",
+                        "section":  "Criminology Required Group 1 - Table I"
+                    },
+                    {
+                        "id":  2,
+                        "url":  "https://www.torontomu.ca/calendar/2025-2026/programs/arts/criminology/",
+                        "title":  "https://www.torontomu.ca/calendar/2025-2026/programs/arts/criminology/",
+                        "section":  "Program Overview/Curriculum Information"
+                    },
+                    {
+                        "id":  3,
+                        "url":  "https://www.torontomu.ca/career-coop-student-success/career-coop/coop/how-to-apply/",
+                        "title":  "https://www.torontomu.ca/career-coop-student-success/career-coop/coop/how-to-apply/",
+                        "section":  "Apply for Co-op"
+                    },
+                    {
+                        "id":  4,
+                        "url":  "https://www.torontomu.ca/current-students/course-enrolment/course-intentions/",
+                        "title":  "https://www.torontomu.ca/current-students/course-enrolment/course-intentions/",
+                        "section":  "Understand your curriculum requirements"
+                    },
+                    {
+                        "id":  5,
+                        "url":  "https://www.torontomu.ca/arts/undergraduate/programs/",
+                        "title":  "https://www.torontomu.ca/arts/undergraduate/programs/",
+                        "section":  "Co-op opportunities"
+                    },
+                    {
+                        "id":  6,
+                        "url":  "https://www.torontomu.ca/myservicehub-support/students/academics/advisement-report/",
+                        "title":  "https://www.torontomu.ca/myservicehub-support/students/academics/advisement-report/",
+                        "section":  "Full-Time Undergraduate Degree Students"
+                    }
+                ],
+    "latency_ms":  3846,
+    "timings":  {
+                    "cache_ms":  0,
+                    "retrieve_ms":  978,
+                    "prompt_ms":  0,
+                    "llm_ms":  2865,
+                    "total_ms":  3846
+                },
+    "cached":  false
+}
+
+==================================================
+What courses should I pick for Psychology second year?
+==================================================
+{
+    "answer":  "A second-year student in the Psychology program at TMU Faculty of Arts, following the standard full-time, four-year program, should take the following courses:\n\nRequired courses for second year:\n- PSY 124 Social Psychology\n- PSY 302 Child Development\n- PSY 324 Biological Psychology\n- PSY 411 Research Methods and Statistics I\n- SSH 301 Research Design and Qualitative Methods\n\nAdditionally, the student must take:\n- Four courses from Table I (Required Group 1)\n- Two Open Electives\n- Two courses from Table A - Lower Level Liberal Studies\n- Two courses from Table II (Core Electives)\n- One course from Table I or one Open Elective (Core Elective/Open Elective)\n\nThis curriculum is outlined in the Full-Time, Four-Year Program section for Psychology [2].\n\nNote: PSY 102 and PSY 202 (Introduction to Psychology I and II) are typically completed in first year as prerequisites [2],[4].\n\nIf the student is in the co-op program, there are some variations, such as taking SSH 104 (Co-op Program Preparation) and a slightly different course load, but for the standard full-time path, the above applies [2],[3].\n\nReferences:\n- Full-Time, Four-Year Program curriculum tables and required courses [2]\n- Table I courses (Required Group 1) [1]\n- Program overview and prerequisites [4]",
+    "sources":  [
+                    {
+                        "id":  1,
+                        "url":  "https://www.torontomu.ca/calendar/2025-2026/programs/arts/psychology/table_i/",
+                        "title":  "https://www.torontomu.ca/calendar/2025-2026/programs/arts/psychology/table_i/",
+                        "section":  "Social Sciences"
+                    },
+                    {
+                        "id":  2,
+                        "url":  "https://www.torontomu.ca/calendar/2025-2026/programs/arts/psychology/",
+                        "title":  "https://www.torontomu.ca/calendar/2025-2026/programs/arts/psychology/",
+                        "section":  "Full-Time, Four-Year Program"
+                    },
+                    {
+                        "id":  3,
+                        "url":  "https://www.torontomu.ca/current-students/course-enrolment/course-intentions/",
+                        "title":  "https://www.torontomu.ca/current-students/course-enrolment/course-intentions/",
+                        "section":  "Understand your curriculum requirements"
+                    },
+                    {
+                        "id":  4,
+                        "url":  "https://www.torontomu.ca/career-coop-student-success/career-coop/coop/how-to-apply/",
+                        "title":  "https://www.torontomu.ca/career-coop-student-success/career-coop/coop/how-to-apply/",
+                        "section":  "Apply for Co-op"
+                    },
+                    {
+                        "id":  5,
+                        "url":  "https://www.torontomu.ca/arts/undergraduate/programs/",
+                        "title":  "https://www.torontomu.ca/arts/undergraduate/programs/",
+                        "section":  "Co-op opportunities"
+                    },
+                    {
+                        "id":  6,
+                        "url":  "https://www.torontomu.ca/myservicehub-support/students/academics/advisement-report/",
+                        "title":  "https://www.torontomu.ca/myservicehub-support/students/academics/advisement-report/",
+                        "section":  "Full-Time Undergraduate Degree Students"
+                    }
+                ],
+    "latency_ms":  3,
+    "timings":  {
+                    "cache_ms":  0,
+                    "retrieve_ms":  15815,
+                    "prompt_ms":  0,
+                    "llm_ms":  3779,
+                    "total_ms":  3
+                },
+    "cached":  true
+}
+
+==================================================
+What courses should I pick for Psychology third year?
+==================================================
+{
+    "answer":  "For a third-year student in the Psychology program at TMU Faculty of Arts following the standard full-time, four-year program, the required courses and curriculum components are as follows:\n\n**Third Year Required Courses:**\n- PSY 325 Psychological Disorders  \n- PSY 511 Research Methods and Statistics II  \n- PSY 654 Cognitive Psychology  \n\n**Liberal Studies:**\n- Two courses from Table B - Upper Level Liberal Studies  \n\n**Core Electives:**\n- Three courses from Table II  \n\n**Open Electives:**\n- Two Open Electives  \n\nThis is based on the Full-Time, Four-Year Program curriculum tables and year-specific requirements listed in the Psychology program calendar [2].\n\nAdditionally, earlier years require completion of foundational courses such as PSY 102, PSY 202, PSY 124, PSY 302, PSY 324, PSY 411, SSH 105, SSH 205, and 
+SSH 301, which should be completed before or by the third year [2].\n\nThe student should also have completed four courses from Table I (Required Group 1) in earlier years [2].\n\nNo specific co-op courses are required unless the student is enrolled in the co-op option, in which case 
+SSH 104 is required [1],[3].\n\nIn summary, a third-year Psychology student should enroll in the third-year required Psychology courses (PSY 325, PSY 511, PSY 654), complete three core electives from Table II, two upper-level liberal studies courses from Table B, and two open electives [2].",
+    "sources":  [
+                    {
+                        "id":  1,
+                        "url":  "https://www.torontomu.ca/calendar/2025-2026/programs/arts/psychology/table_i/",
+                        "title":  "https://www.torontomu.ca/calendar/2025-2026/programs/arts/psychology/table_i/",
+                        "section":  "Social Sciences"
+                    },
+                    {
+                        "id":  2,
+                        "url":  "https://www.torontomu.ca/calendar/2025-2026/programs/arts/psychology/",
+                        "title":  "https://www.torontomu.ca/calendar/2025-2026/programs/arts/psychology/",
+                        "section":  "Full-Time, Four-Year Program"
+                    },
+                    {
+                        "id":  3,
+                        "url":  "https://www.torontomu.ca/current-students/course-enrolment/course-intentions/",
+                        "title":  "https://www.torontomu.ca/current-students/course-enrolment/course-intentions/",
+                        "section":  "Understand your curriculum requirements"
+                    },
+                    {
+                        "id":  4,
+                        "url":  "https://www.torontomu.ca/calendar/2025-2026/dates/",
+                        "title":  "https://www.torontomu.ca/calendar/2025-2026/dates/",
+                        "section":  "List of Significant Dates"
+                    },
+                    {
+                        "id":  5,
+                        "url":  "https://www.torontomu.ca/career-coop-student-success/career-coop/coop/how-to-apply/",
+                        "title":  "https://www.torontomu.ca/career-coop-student-success/career-coop/coop/how-to-apply/",
+                        "section":  "Apply for Co-op"
+                    },
+                    {
+                        "id":  6,
+                        "url":  "https://www.torontomu.ca/arts/undergraduate/programs/",
+                        "title":  "https://www.torontomu.ca/arts/undergraduate/programs/",
+                        "section":  "Co-op opportunities"
+                    },
+                    {
+                        "id":  7,
+                        "url":  "https://www.torontomu.ca/myservicehub-support/students/academics/advisement-report/",
+                        "title":  "https://www.torontomu.ca/myservicehub-support/students/academics/advisement-report/",
+                        "section":  "Full-Time Undergraduate Degree Students"
+                    }
+                ],
+    "latency_ms":  5014,
+    "timings":  {
+                    "cache_ms":  0,
+                    "retrieve_ms":  1246,
+                    "prompt_ms":  0,
+                    "llm_ms":  3764,
+                    "total_ms":  5014
+                },
+    "cached":  false
+}
+
+==================================================
+What courses should I pick for Psychology fourth year?
+==================================================
+{
+    "answer":  "A fourth-year student in the Psychology program at TMU Faculty of Arts following the standard full-time, four-year path should take the following courses:\n\n**Year 4 Requirements:**\n\n- PSY 731 History and Theory of Psychology  \n- Two courses from Table B - Upper Level Liberal Studies  \n- Five courses from Table II (Core Electives)  \n- Two Open Electives  \n\nThis is based on the Full-Time, Four-Year Program curriculum tables and year-specific requirements for Psychology, which specify the required courses and electives for each year. The fourth year focuses on advanced Psychology courses and upper-level liberal studies, along with core electives and open electives [2].\n\nEarlier years include required courses such as PSY 102, PSY 202, PSY 124, PSY 302, PSY 324, PSY 411, SSH 301, PSY 325, PSY 511, and PSY 654, but for the fourth year specifically, the above courses and electives apply [2].\n\nNo co-op courses are required unless the student is enrolled in the co-op program, which is a separate five-year option [3].\n\nFor exact course lists in Table I and Table II, and Table B liberal studies, please 
+refer to the TMU undergraduate calendar pages for Psychology and the Social Sciences tables [1][2].",
+    "sources":  [
+                    {
+                        "id":  1,
+                        "url":  "https://www.torontomu.ca/calendar/2025-2026/programs/arts/psychology/table_i/",
+                        "title":  "https://www.torontomu.ca/calendar/2025-2026/programs/arts/psychology/table_i/",
+                        "section":  "Social Sciences"
+                    },
+                    {
+                        "id":  2,
+                        "url":  "https://www.torontomu.ca/calendar/2025-2026/programs/arts/psychology/",
+                        "title":  "https://www.torontomu.ca/calendar/2025-2026/programs/arts/psychology/",
+                        "section":  "Full-Time, Four-Year Program"
+                    },
+                    {
+                        "id":  3,
+                        "url":  "https://www.torontomu.ca/career-coop-student-success/career-coop/coop/how-to-apply/",
+                        "title":  "https://www.torontomu.ca/career-coop-student-success/career-coop/coop/how-to-apply/",
+                        "section":  "Apply for Co-op"
+                    },
+                    {
+                        "id":  4,
+                        "url":  "https://www.torontomu.ca/current-students/course-enrolment/course-intentions/",
+                        "title":  "https://www.torontomu.ca/current-students/course-enrolment/course-intentions/",
+                        "section":  "Understand your curriculum requirements"
+                    },
+                    {
+                        "id":  5,
+                        "url":  "https://www.torontomu.ca/arts/undergraduate/programs/",
+                        "title":  "https://www.torontomu.ca/arts/undergraduate/programs/",
+                        "section":  "Co-op opportunities"
+                    },
+                    {
+                        "id":  6,
+                        "url":  "https://www.torontomu.ca/myservicehub-support/students/academics/advisement-report/",
+                        "title":  "https://www.torontomu.ca/myservicehub-support/students/academics/advisement-report/",
+                        "section":  "Full-Time Undergraduate Degree Students"
+                    }
+                ],
+    "latency_ms":  4463,
+    "timings":  {
+                    "cache_ms":  0,
+                    "retrieve_ms":  1137,
+                    "prompt_ms":  0,
+                    "llm_ms":  3323,
+                    "total_ms":  4463
+                },
+    "cached":  false
+}
+
+==================================================
+What courses should I pick for English second year?
+==================================================
+{
+    "answer":  "A second-year student in the English program at TMU Faculty of Arts, following the standard full-time, four-year program, should take the following courses:\n\n1. Final foundational Common Arts Platform skills course:\n   - SSH 301 Research Design and Qualitative Methods\n\n2. English research course:\n   - ENG 810 Approaches to English Research\n\n3. One English practicum course (Core Elective Practicum), choosing one from:\n   - ENG 302 Practicum: Writing for Magazines\n   - ENG 304 Practicum: Making Digital Work\n   - ENG 306 Practicum: Writing 
+Poetry\n   - ENG 307 Practicum: Writing Fiction\n   - ENG 308 Practicum: Grammar Principles for Editors\n   - ENG 340 Practicum: Making Little Magazines\n   - ENG 390 Practicum: Open Topics\n\n4. One Core Elective Group 1 course (pre-20th century English literature), choosing one from:\n   - ENG 421 16C Literature and Culture\n   - ENG 422 17C Literature and Culture\n   - ENG 531 18C Literature and Culture\n   - ENG 632 19C Literature and Culture\n   - ENG 634 Romantic Explorations\n   - ENG 635 Modernism\n\n5. Two courses from Table A - Lower Level Liberal Studies\n\n6. Four courses from Table I (Required Group 1)\n\n7. Two Open Electives\n\nThis curriculum is based on the Full-Time, Four-Year Program table for English in the TMU 2025-2026 calendar [2]. The second year focuses on completing foundational research skills and practicum experience in English, along with required literature courses and liberal studies electives [1][2].\n\nNote: First-year required courses include ENG 110 and ENG 208, which are strongly recommended to be completed before second year [1][2]. The co-op option exists but typically extends the program to five years and is optional [3][5].",
+    "sources":  [
+                    {
+                        "id":  1,
+                        "url":  "https://www.torontomu.ca/calendar/2025-2026/programs/arts/english/",
+                        "title":  "https://www.torontomu.ca/calendar/2025-2026/programs/arts/english/",
+                        "section":  "Program Overview/Curriculum Information"
+                    },
+                    {
+                        "id":  2,
+                        "url":  "https://www.torontomu.ca/current-students/course-enrolment/course-intentions/",
+                        "title":  "https://www.torontomu.ca/current-students/course-enrolment/course-intentions/",
+                        "section":  "Understand your curriculum requirements"
+                    },
+                    {
+                        "id":  3,
+                        "url":  "https://www.torontomu.ca/arts/undergraduate/programs/",
+                        "title":  "https://www.torontomu.ca/arts/undergraduate/programs/",
+                        "section":  "Co-op opportunities"
+                    },
+                    {
+                        "id":  4,
+                        "url":  "https://www.torontomu.ca/career-coop-student-success/career-coop/coop/how-to-apply/",
+                        "title":  "https://www.torontomu.ca/career-coop-student-success/career-coop/coop/how-to-apply/",
+                        "section":  "Apply for Co-op"
+                    },
+                    {
+                        "id":  5,
+                        "url":  "https://www.torontomu.ca/admissions/undergraduate/requirements/ontario/",
+                        "title":  "https://www.torontomu.ca/admissions/undergraduate/requirements/ontario/",
+                        "section":  "Additional admission policies"
+                    },
+                    {
+                        "id":  6,
+                        "url":  "https://www.torontomu.ca/myservicehub-support/students/academics/advisement-report/",
+                        "title":  "https://www.torontomu.ca/myservicehub-support/students/academics/advisement-report/",
+                        "section":  "Full-Time Undergraduate Degree Students"
+                    }
+                ],
+    "latency_ms":  7257,
+    "timings":  {
+                    "cache_ms":  0,
+                    "retrieve_ms":  1420,
+                    "prompt_ms":  0,
+                    "llm_ms":  5834,
+                    "total_ms":  7257
+                },
+    "cached":  false
+}
+
+==================================================
+What courses should I pick for English third year?
+==================================================
+{
+    "answer":  "A third-year student in the English program at TMU Faculty of Arts, following the full-time, four-year program, should take the following courses:\n\n1. Literary and Cultural Theory course (specific course code not listed in the provided context but indicated as a third-year requirement).\n2. Pre-20th century English courses selected from Required Group 1 (four courses from Table I).\n3. One English practicum course (Core Elective Practicum) from options such as:\n   - ENG 302 Practicum: Writing for Magazines\n   - ENG 304 Practicum: Making Digital Work\n   - ENG 306 Practicum: Writing Poetry\n   - ENG 307 Practicum: Writing Fiction\n   - ENG 308 Practicum: Grammar Principles for Editors\n   - ENG 340 Practicum: Making Little Magazines\n   - ENG 390 Practicum: Open Topics\n4. One Core Elective Group 1 course from:\n   - ENG 421 16C Literature and Culture\n   - ENG 422 17C Literature and Culture\n   - ENG 531 18C Literature and Culture\n   - ENG 632 19C Literature and Culture\n   - ENG 634 Romantic Explorations\n   - ENG 635 Modernism\n5. Three Core Elective courses from Core Elective Table II.\n6. One Core 
+Elective or Open Elective from Table (specific table not fully detailed in the context).\n7. Two Liberal Studies courses from Table A - Lower Level Liberal Studies (if not already completed).\n8. Open Electives as required to fulfill the program.\n\nNote: The foundational courses ENG 
+110, ENG 208, SSH 105, SSH 205, ENG 810, and SSH 301 are typically completed in earlier years (first and second year) [1][2].\n\nThis curriculum aligns with the standard full-time four-year path without co-op. Co-op options exist but typically extend the program to five years and are 
+optional [1][2][5].\n\nFor exact course codes and detailed Table I and II listings, students should consult the TMU Undergraduate Calendar English program page directly [1].\n\nReferences:  \n[1] TMU 2025-2026 English Program Full-Time, Four-Year Program Curriculum  \n[2] TMU 2025-2026 English Program Overview/Curriculum Information  \n[5] TMU Arts Co-op Opportunities (not required for standard path)",
+    "sources":  [
+                    {
+                        "id":  1,
+                        "url":  "https://www.torontomu.ca/calendar/2025-2026/programs/arts/english/",
+                        "title":  "https://www.torontomu.ca/calendar/2025-2026/programs/arts/english/",
+                        "section":  "Full-Time, Four-Year Program"
+                    },
+                    {
+                        "id":  2,
+                        "url":  "https://www.torontomu.ca/current-students/course-enrolment/course-intentions/",
+                        "title":  "https://www.torontomu.ca/current-students/course-enrolment/course-intentions/",
+                        "section":  "Understand your curriculum requirements"
+                    },
+                    {
+                        "id":  3,
+                        "url":  "https://www.torontomu.ca/arts/undergraduate/programs/",
+                        "title":  "https://www.torontomu.ca/arts/undergraduate/programs/",
+                        "section":  "Co-op opportunities"
+                    },
+                    {
+                        "id":  4,
+                        "url":  "https://www.torontomu.ca/calendar/2025-2026/dates/",
+                        "title":  "https://www.torontomu.ca/calendar/2025-2026/dates/",
+                        "section":  "List of Significant Dates"
+                    },
+                    {
+                        "id":  5,
+                        "url":  "https://www.torontomu.ca/career-coop-student-success/career-coop/coop/how-to-apply/",
+                        "title":  "https://www.torontomu.ca/career-coop-student-success/career-coop/coop/how-to-apply/",
+                        "section":  "Apply for Co-op"
+                    },
+                    {
+                        "id":  6,
+                        "url":  "https://www.torontomu.ca/myservicehub-support/students/academics/advisement-report/",
+                        "title":  "https://www.torontomu.ca/myservicehub-support/students/academics/advisement-report/",
+                        "section":  "Full-Time Undergraduate Degree Students"
+                    }
+                ],
+    "latency_ms":  7638,
+    "timings":  {
+                    "cache_ms":  0,
+                    "retrieve_ms":  1538,
+                    "prompt_ms":  0,
+                    "llm_ms":  6097,
+                    "total_ms":  7638
+                },
+    "cached":  false
+}
+
+==================================================
+What courses should I pick for English fourth year?
+==================================================
+{
+    "answer":  "A fourth-year student in the English program at TMU Faculty of Arts, following the full-time, four-year standard curriculum, should take the following courses:\n\n1. Remaining elective requirements (to satisfy any outstanding electives).\n2. The required capstone seminar course (not explicitly named in the provided text but implied as a final-year requirement).\n3. One core elective practicum course from the following options:\n   - ENG 302 Practicum: Writing for Magazines\n   - ENG 304 Practicum: Making Digital Work\n   - ENG 306 Practicum: Writing Poetry\n   - ENG 307 Practicum: Writing Fiction\n   - ENG 308 Practicum: Grammar Principles for Editors\n   - ENG 340 Practicum: Making Little Magazines\n   - ENG 390 Practicum: Open Topics\n4. One core elective Group 1 course from the following:\n   - ENG 421 16C Literature and Culture\n   - ENG 422 17C Literature and Culture\n   - ENG 531 18C Literature and Culture\n   - ENG 632 19C Literature and Culture\n   - ENG 634 Romantic Explorations\n   - ENG 635 Modernism\n5. Three courses from Core Elective Table II (specific courses not listed in the provided context).\n6. One course from Core Elective/Open Elective Table (specific courses not listed).\n7. Two open electives.\n8. Two lower-level Liberal Studies courses from Table A (if not already completed).\n9. The required research and methods courses (ENG 810 Approaches to English Research and SSH 301 Research Design and Qualitative Methods) are typically completed earlier but are part of the overall program requirements.\n\nNote: The exact course titles and codes for the capstone seminar and Core Elective Table II are not detailed in the provided context. Students should consult the full Undergraduate Calendar for precise course listings and confirm with their academic advisor.\n\nThis curriculum is based on the Full-Time, Four-Year Program requirements for English as listed in the TMU 2025-2026 Undergraduate Calendar [1].",
+    "sources":  [
+                    {
+                        "id":  1,
+                        "url":  "https://www.torontomu.ca/calendar/2025-2026/programs/arts/english/",
+                        "title":  "https://www.torontomu.ca/calendar/2025-2026/programs/arts/english/",
+                        "section":  "Full-Time, Four-Year Program"
+                    },
+                    {
+                        "id":  2,
+                        "url":  "https://www.torontomu.ca/current-students/course-enrolment/course-intentions/",
+                        "title":  "https://www.torontomu.ca/current-students/course-enrolment/course-intentions/",
+                        "section":  "Understand your curriculum requirements"
+                    },
+                    {
+                        "id":  3,
+                        "url":  "https://www.torontomu.ca/arts/undergraduate/programs/",
+                        "title":  "https://www.torontomu.ca/arts/undergraduate/programs/",
+                        "section":  "Co-op opportunities"
+                    },
+                    {
+                        "id":  4,
+                        "url":  "https://www.torontomu.ca/career-coop-student-success/career-coop/coop/how-to-apply/",
+                        "title":  "https://www.torontomu.ca/career-coop-student-success/career-coop/coop/how-to-apply/",
+                        "section":  "Apply for Co-op"
+                    },
+                    {
+                        "id":  5,
+                        "url":  "https://www.torontomu.ca/myservicehub-support/students/academics/advisement-report/",
+                        "title":  "https://www.torontomu.ca/myservicehub-support/students/academics/advisement-report/",
+                        "section":  "Full-Time Undergraduate Degree Students"
+                    },
+                    {
+                        "id":  6,
+                        "url":  "https://www.torontomu.ca/current-students/course-enrolment/",
+                        "title":  "https://www.torontomu.ca/current-students/course-enrolment/",
+                        "section":  "How do I know which courses to select?"
+                    }
+                ],
+    "latency_ms":  5508,
+    "timings":  {
+                    "cache_ms":  0,
+                    "retrieve_ms":  1392,
+                    "prompt_ms":  0,
+                    "llm_ms":  4114,
+                    "total_ms":  5508
+                },
+    "cached":  false
+}
+
+==================================================
+What courses should I pick for History second year?
+==================================================
+{
+    "answer":  "For a second-year student in the History program at TMU Faculty of Arts, the curriculum includes the following key course requirements and guidelines:\n\n1. **Foundational and H-Craft Courses:**\n   - In second year, students take their third foundational course, *Research Design and Qualitative Methods*.\n   - They also take the first of the Department of Historyâs signature Historianâs Craft (H-Craft) courses, *Hearing, Seeing and Speaking History*.\n   - These are followed by two additional H-Craft courses in third year [2].\n\n2. **History 
+Course Selection:**\n   - Students select from a range of focused History courses and other subjects during second and third years.\n   - A total of four to six History courses are required in the program, with no more than two courses taken from any one subject area.\n   - History courses numbered between HIS 100 and HIS 399 or HIS 461, HIS 462, HIS 475, and HIS 490 are not available as choices in Table I (Required Group 2) [1].\n\n3. **Liberal Studies and Electives:**\n   - Students must complete lower-level and upper-level liberal studies courses as part of their degree requirements.\n   - History courses are restricted in some liberal studies tables (Table A and Table B) and cannot be counted for credit in those categories [4].\n\n4. **Typical Progression:**\n   - First year includes HIS 101 and a second History course.\n   - Second year focuses on foundational research methods and the first H-Craft course, plus additional History electives [2].\n\n5. **Program Completion:**\n   - The standard full-time History program can be completed in four years.\n   - Co-op is optional and typically extends the program to five years but is not required [3].\n\nIn summary, a second-year History student should take:\n- Research Design and Qualitative Methods (foundational course)\n- Hearing, Seeing and Speaking History (first H-Craft course)\n- Additional History electives selected from approved courses (excluding those restricted in Table I and liberal studies restrictions)\n- Liberal studies courses as required by the Faculty of Arts curriculum [1][2][4].\n\nFor exact course codes and detailed course lists, students should consult the History Table I and the Faculty of Arts undergraduate calendar for the 2025-2026 academic year.",
+    "sources":  [
+                    {
+                        "id":  1,
+                        "url":  "https://www.torontomu.ca/calendar/2025-2026/programs/arts/history/table_i/",
+                        "title":  "https://www.torontomu.ca/calendar/2025-2026/programs/arts/history/table_i/",
+                        "section":  "History Required Group 2 - Table I"
+                    },
+                    {
+                        "id":  2,
+                        "url":  "https://www.torontomu.ca/calendar/2025-2026/programs/arts/history/",
+                        "title":  "https://www.torontomu.ca/calendar/2025-2026/programs/arts/history/",
+                        "section":  "Program Overview/Curriculum Information"
+                    },
+                    {
+                        "id":  3,
+                        "url":  "https://www.torontomu.ca/current-students/course-enrolment/course-intentions/",
+                        "title":  "https://www.torontomu.ca/current-students/course-enrolment/course-intentions/",
+                        "section":  "Understand your curriculum requirements"
+                    },
+                    {
+                        "id":  4,
+                        "url":  "https://www.torontomu.ca/career-coop-student-success/career-coop/coop/how-to-apply/",
+                        "title":  "https://www.torontomu.ca/career-coop-student-success/career-coop/coop/how-to-apply/",
+                        "section":  "Apply for Co-op"
+                    },
+                    {
+                        "id":  5,
+                        "url":  "https://www.torontomu.ca/arts/undergraduate/programs/",
+                        "title":  "https://www.torontomu.ca/arts/undergraduate/programs/",
+                        "section":  "Co-op opportunities"
+                    },
+                    {
+                        "id":  6,
+                        "url":  "https://www.torontomu.ca/myservicehub-support/students/academics/advisement-report/",
+                        "title":  "https://www.torontomu.ca/myservicehub-support/students/academics/advisement-report/",
+                        "section":  "Full-Time Undergraduate Degree Students"
+                    }
+                ],
+    "latency_ms":  6799,
+    "timings":  {
+                    "cache_ms":  0,
+                    "retrieve_ms":  1302,
+                    "prompt_ms":  0,
+                    "llm_ms":  5494,
+                    "total_ms":  6799
+                },
+    "cached":  false
+}
+
+==================================================
+What courses should I pick for History third year?
+==================================================
+{
+    "answer":  "A third-year student in the History program at TMU Faculty of Arts should follow the standard full-time, four-year program curriculum as outlined in the undergraduate calendar. Key points for course selection in third year include:\n\n1. History Required Group 2 - Table I:  \n- Students must complete a total of four to six courses from Table I groups, with no more than two courses from any one subject area.  \n- Courses numbered HIS 100 to HIS 399, and HIS 461, 462, 475, and 490 are not available choices in Table I [1].\n\n2. Year-Specific Requirements:  \n- In third year, students take two additional Historianâs Craft (H-Craft) courses, following the first H-Craft course taken in second year.  \n- They also select from a range of focused History courses and electives to apply their foundational and H-Craft skills [2].\n\n3. 
+Liberal Studies and Electives:  \n- Students must complete lower and upper level Liberal Studies courses as per Faculty of Arts requirements, avoiding courses restricted for History majors (History courses are restricted in some Liberal Studies tables) [4].  \n- They also take core electives and open electives as required by the program [3].\n\n4. Co-op Option:  \n- The regular History program can be completed in four years; co-op extends the program to five years but is optional [3].\n\nFor exact course lists and tables, students should consult the History Required Group 2 - Table I page for approved courses and ensure they meet the two-course per subject area limit [1]. The program overview indicates the progression of foundational, H-Craft, and focused History courses through years two to four [2].\n\nIn summary, a third-year History student should:  \n- Take two H-Craft courses in third year.  \n- Select additional History courses from Table I (excluding HIS 100-399, 461, 462, 475, 490).  \n- Complete required Liberal Studies and electives as per Faculty of Arts policy.  \n- Follow the full-time, four-year program path unless opting for co-op [1][2][3][4].\n\nFor precise course codes and offerings, refer directly to the History Table I and the Faculty of Arts undergraduate calendar for 2025-2026.",
+    "sources":  [
+                    {
+                        "id":  1,
+                        "url":  "https://www.torontomu.ca/calendar/2025-2026/programs/arts/history/table_i/",
+                        "title":  "https://www.torontomu.ca/calendar/2025-2026/programs/arts/history/table_i/",
+                        "section":  "History Required Group 2 - Table I"
+                    },
+                    {
+                        "id":  2,
+                        "url":  "https://www.torontomu.ca/calendar/2025-2026/programs/arts/history/",
+                        "title":  "https://www.torontomu.ca/calendar/2025-2026/programs/arts/history/",
+                        "section":  "Program Overview/Curriculum Information"
+                    },
+                    {
+                        "id":  3,
+                        "url":  "https://www.torontomu.ca/current-students/course-enrolment/course-intentions/",
+                        "title":  "https://www.torontomu.ca/current-students/course-enrolment/course-intentions/",
+                        "section":  "Understand your curriculum requirements"
+                    },
+                    {
+                        "id":  4,
+                        "url":  "https://www.torontomu.ca/calendar/2025-2026/dates/",
+                        "title":  "https://www.torontomu.ca/calendar/2025-2026/dates/",
+                        "section":  "List of Significant Dates"
+                    },
+                    {
+                        "id":  5,
+                        "url":  "https://www.torontomu.ca/career-coop-student-success/career-coop/coop/how-to-apply/",
+                        "title":  "https://www.torontomu.ca/career-coop-student-success/career-coop/coop/how-to-apply/",
+                        "section":  "Apply for Co-op"
+                    },
+                    {
+                        "id":  6,
+                        "url":  "https://www.torontomu.ca/arts/undergraduate/programs/",
+                        "title":  "https://www.torontomu.ca/arts/undergraduate/programs/",
+                        "section":  "Co-op opportunities"
+                    }
+                ],
+    "latency_ms":  6591,
+    "timings":  {
+                    "cache_ms":  0,
+                    "retrieve_ms":  1391,
+                    "prompt_ms":  0,
+                    "llm_ms":  5197,
+                    "total_ms":  6591
+                },
+    "cached":  false
+}
+
+==================================================
+What courses should I pick for History fourth year?
+==================================================
+{
+    "answer":  "A fourth-year student in the History program at TMU Faculty of Arts, following the standard full-time, four-year path (non-co-op), should focus on the following course requirements based on the undergraduate calendar:\n\n1. History Required Group 2 - Table I:\n- A total of four to six courses are required from Table I.\n- No more than two courses can be taken from any one subject area.\n- Courses numbered HIS 100 to HIS 399 or HIS 461, HIS 462, HIS 475, and HIS 490 are not available as choices in Table I [1].\n\n2. Liberal Studies:\n- Two upper-level Liberal Studies courses from Table B are required [2].\n- History courses are not available for credit in Table B (Upper Level Restrictions) [4].\n\n3. Core Electives:\n- Four courses from Table II are required [2].\n\n4. Open Electives:\n- Two open electives are required [2].\n\n5. Senior Seminars (likely in fourth year):\n- Seminar VII: Europe (HIS 990)\n- Senior Seminar VIII: International Relations [2].\n\nThe regular program can be completed in four years without co-op, which typically extends the program to five years [2].\n\nNote: The exact course codes 
+and titles for Table I and Table II courses, as well as the specific upper-level Liberal Studies courses, should be consulted directly in the TMU 2025-2026 Undergraduate Calendar for History to select appropriate courses that meet these requirements.\n\nIn summary, a fourth-year History student should complete:\n- Remaining required History courses from Table I (4-6 courses total, with restrictions)\n- Two upper-level Liberal Studies courses (non-History)\n- Four core electives from Table II\n- Two open electives\n- Senior seminars HIS 990 and Senior Seminar VIII\n\nThis ensures fulfillment of the full-time, four-year History program curriculum at TMU Faculty of Arts [1][2][4].",
+    "sources":  [
+                    {
+                        "id":  1,
+                        "url":  "https://www.torontomu.ca/calendar/2025-2026/programs/arts/history/table_i/",
+                        "title":  "https://www.torontomu.ca/calendar/2025-2026/programs/arts/history/table_i/",
+                        "section":  "History Required Group 2 - Table I"
+                    },
+                    {
+                        "id":  2,
+                        "url":  "https://www.torontomu.ca/calendar/2025-2026/programs/arts/history/",
+                        "title":  "https://www.torontomu.ca/calendar/2025-2026/programs/arts/history/",
+                        "section":  "Full-Time, Five-Year Co-op Program"
+                    },
+                    {
+                        "id":  3,
+                        "url":  "https://www.torontomu.ca/career-coop-student-success/career-coop/coop/how-to-apply/",
+                        "title":  "https://www.torontomu.ca/career-coop-student-success/career-coop/coop/how-to-apply/",
+                        "section":  "Apply for Co-op"
+                    },
+                    {
+                        "id":  4,
+                        "url":  "https://www.torontomu.ca/current-students/course-enrolment/course-intentions/",
+                        "title":  "https://www.torontomu.ca/current-students/course-enrolment/course-intentions/",
+                        "section":  "Understand your curriculum requirements"
+                    },
+                    {
+                        "id":  5,
+                        "url":  "https://www.torontomu.ca/arts/undergraduate/programs/",
+                        "title":  "https://www.torontomu.ca/arts/undergraduate/programs/",
+                        "section":  "Co-op opportunities"
+                    },
+                    {
+                        "id":  6,
+                        "url":  "https://www.torontomu.ca/myservicehub-support/students/academics/advisement-report/",
+                        "title":  "https://www.torontomu.ca/myservicehub-support/students/academics/advisement-report/",
+                        "section":  "Full-Time Undergraduate Degree Students"
+                    }
+                ],
+    "latency_ms":  6326,
+    "timings":  {
+                    "cache_ms":  0,
+                    "retrieve_ms":  1187,
+                    "prompt_ms":  0,
+                    "llm_ms":  5135,
+                    "total_ms":  6326
+                },
+    "cached":  false
+}
+
+==================================================
+What courses should I pick for Sociology second year?
+==================================================
+{
+    "answer":  "A second-year student in the Sociology program at TMU Faculty of Arts, following the standard full-time four-year program, should take the following courses based on the undergraduate calendar curriculum tables and year-specific requirements:\n\n**Year 1 (for context):**  \n- SOC 105 Introduction to Sociology  \n- SOC 107 Sociology of the Everyday  \n- SSH 105 Critical Thinking  \n- SSH 205 Academic Writing and Research  \n- Four courses from Table I (Required Group 1)  \n- Two Open Electives  \n- Two courses from Table A - Lower Level Liberal Studies  \n\n**Year 2 (focus):**  \n- Required Group 1 courses (four courses from Table I), which include:  \n  - SOC 300 Sociology of Equity and Diversity  \n  - SOC 411 Intro to Quantitative Data Analysis  \n  - SOC 420 Social Class in Changing Times  \n  - SOC 427 Indigenous Perspectives on Canada  \n  - SOC 470 Toronto: The Changing City  \n  - SOC 473 Classical Sociological Theory  \n  - SOC 525 Media and Images of Inequality  \n  - SOC 608 Women, Power and Change  \n  - SSH 301 Research Design and Qualitative Methods  \n(Students select four from these or other 
+Table I courses as per curriculum)  \n\n- One course from Table I or one Open Elective  \n- Two courses from Table A - Lower Level Liberal Studies (if not completed in Year 1)  \n\n**Summary for Year 2:**  \n- Four Required Group 1 courses from Table I (core sociology courses)  \n- One additional course from Table I or an Open Elective  \n- Remaining Liberal Studies courses as per curriculum  \n\n**Additional notes:**  \n- The program requires completion of core electives from Table II and upper-level Liberal Studies courses in later years.  \n- The Capstone course SOC 490 and Required Group 2 courses (SOC 491, 492, 493, or 494) are taken in later years (typically Year 4).  \n- Co-op is optional and typically extends the program to five years; the standard path is four years without co-op [2][3].\n\nFor exact course codes and selection, students should refer to Table I and Table II in the TMU Undergraduate Calendar for Sociology and consult their academic advisor to ensure prerequisites and sequencing are met.  \n\nReferences:  \n- Required Group 1 courses (Table I) and Year 2 requirements: [1], [3]  \n- Full-Time, Four-Year Program curriculum details: [2], [3]",
+    "sources":  [
+                    {
+                        "id":  1,
+                        "url":  "https://www.torontomu.ca/calendar/2025-2026/programs/arts/sociology/table_i/",
+                        "title":  "https://www.torontomu.ca/calendar/2025-2026/programs/arts/sociology/table_i/",
+                        "section":  "Social Sciences"
+                    },
+                    {
+                        "id":  2,
+                        "url":  "https://www.torontomu.ca/calendar/2025-2026/programs/arts/sociology/",
+                        "title":  "https://www.torontomu.ca/calendar/2025-2026/programs/arts/sociology/",
+                        "section":  "Full-Time, Four-Year Program"
+                    },
+                    {
+                        "id":  3,
+                        "url":  "https://www.torontomu.ca/current-students/course-enrolment/course-intentions/",
+                        "title":  "https://www.torontomu.ca/current-students/course-enrolment/course-intentions/",
+                        "section":  "Understand your curriculum requirements"
+                    },
+                    {
+                        "id":  4,
+                        "url":  "https://www.torontomu.ca/career-coop-student-success/career-coop/coop/how-to-apply/",
+                        "title":  "https://www.torontomu.ca/career-coop-student-success/career-coop/coop/how-to-apply/",
+                        "section":  "Apply for Co-op"
+                    },
+                    {
+                        "id":  5,
+                        "url":  "https://www.torontomu.ca/arts/undergraduate/programs/",
+                        "title":  "https://www.torontomu.ca/arts/undergraduate/programs/",
+                        "section":  "Co-op opportunities"
+                    },
+                    {
+                        "id":  6,
+                        "url":  "https://www.torontomu.ca/myservicehub-support/students/academics/advisement-report/",
+                        "title":  "https://www.torontomu.ca/myservicehub-support/students/academics/advisement-report/",
+                        "section":  "Part-Time Undergraduate Degree Students"
+                    }
+                ],
+    "latency_ms":  7987,
+    "timings":  {
+                    "cache_ms":  0,
+                    "retrieve_ms":  849,
+                    "prompt_ms":  0,
+                    "llm_ms":  7134,
+                    "total_ms":  7987
+                },
+    "cached":  false
+}
+
+==================================================
+What courses should I pick for Sociology third year?
+==================================================
+{
+    "answer":  "A third-year student in the Sociology program at TMU Faculty of Arts, following the standard full-time, four-year program, should take the following courses:\n\n**Required Courses:**\n- SOC 411: Introduction to Quantitative Data Analysis\n- SOC 427: Indigenous Perspectives on Canada\n- SOC 470: Toronto: The Changing City\n- SOC 473: Classical Sociological Theory\n- SSH 301: Research Design and Qualitative Methods\n\n**Required Group 1 (choose four courses from Table I):**\n- SOC 300: Sociology of Equity and Diversity\n- SOC 420: Social Class in Changing Times\n- SOC 525: Media and Images of Inequality\n- SOC 608: Women, Power and Change\n\n**Liberal Studies:**\n- Two courses from Table B - Upper Level Liberal Studies\n\n**Core Electives:**\n- Two courses from Table II\n\n**Open Electives:**\n- Two Open Electives\n\nThis is based on the Full-Time, Four-Year Program curriculum tables and year-specific requirements for Sociology at TMU Faculty of Arts [2], [3].\n\nIf the student is in the co-op program (which typically takes five years), the course requirements differ slightly and include SSH 104 Co-op Program Preparation and other co-op related courses, but this is not the default path unless specified [4].\n\n# Summary for third-year Sociology student (standard full-time four-year path):\n- SOC 411, SOC 427, SOC 470, SOC 473, SSH 301\n- Four courses from Required Group 1 (Table I)\n- Two Upper Level Liberal Studies (Table B)\n- Two Core Electives (Table II)\n- Two Open Electives\n\nReferences: [2], [3]",
+    "sources":  [
+                    {
+                        "id":  1,
+                        "url":  "https://www.torontomu.ca/calendar/2025-2026/programs/arts/sociology/table_i/",
+                        "title":  "https://www.torontomu.ca/calendar/2025-2026/programs/arts/sociology/table_i/",
+                        "section":  "Social Sciences"
+                    },
+                    {
+                        "id":  2,
+                        "url":  "https://www.torontomu.ca/calendar/2025-2026/programs/arts/sociology/",
+                        "title":  "https://www.torontomu.ca/calendar/2025-2026/programs/arts/sociology/",
+                        "section":  "Full-Time, Four-Year Program"
+                    },
+                    {
+                        "id":  3,
+                        "url":  "https://www.torontomu.ca/current-students/course-enrolment/course-intentions/",
+                        "title":  "https://www.torontomu.ca/current-students/course-enrolment/course-intentions/",
+                        "section":  "Understand your curriculum requirements"
+                    },
+                    {
+                        "id":  4,
+                        "url":  "https://www.torontomu.ca/career-coop-student-success/career-coop/coop/how-to-apply/",
+                        "title":  "https://www.torontomu.ca/career-coop-student-success/career-coop/coop/how-to-apply/",
+                        "section":  "Apply for Co-op"
+                    },
+                    {
+                        "id":  5,
+                        "url":  "https://www.torontomu.ca/arts/undergraduate/programs/",
+                        "title":  "https://www.torontomu.ca/arts/undergraduate/programs/",
+                        "section":  "Co-op opportunities"
+                    },
+                    {
+                        "id":  6,
+                        "url":  "https://www.torontomu.ca/myservicehub-support/students/academics/advisement-report/",
+                        "title":  "https://www.torontomu.ca/myservicehub-support/students/academics/advisement-report/",
+                        "section":  "Part-Time Undergraduate Degree Students"
+                    }
+                ],
+    "latency_ms":  7721,
+    "timings":  {
+                    "cache_ms":  0,
+                    "retrieve_ms":  939,
+                    "prompt_ms":  0,
+                    "llm_ms":  6777,
+                    "total_ms":  7721
+                },
+    "cached":  false
+}
+
+==================================================
+What courses should I pick for Sociology fourth year?
+==================================================
+{
+    "answer":  "A fourth-year student in the Sociology program at TMU Faculty of Arts following the standard full-time, four-year path should take the following courses according to the 2025-2026 Undergraduate Calendar:\n\n**Year 4 Required Courses:**\n- SOC 475 Contemporary Sociological Theory\n- SOC 481 Survey Design and Analysis\n- SOC 482 Advanced Approaches to Media Analysis\n- SOC 483 Statistical Modelling\n- SOC 490 Capstone: Specializing Your Knowledge\n\n**Required Group 2 (choose one):**\n- SOC 491 Independent Sociological Analysis\n- SOC 492 Current Social Issue Focus\n- SOC 493 Creating Social Change\n- SOC 494 Career Integration\n\n**Core Electives:**\n- Four courses from Table II (advanced Sociology electives)\n\n**Liberal Studies:**\n- Two courses from Table B - Upper Level Liberal Studies\n\n**Open Electives:**\n- Two Open Electives\n\nThis curriculum is detailed in the Full-Time, Four-Year Program section for Sociology and includes the exact required courses and elective groupings for the final year [2][3].",
+    "sources":  [
+                    {
+                        "id":  1,
+                        "url":  "https://www.torontomu.ca/calendar/2025-2026/programs/arts/sociology/table_i/",
+                        "title":  "https://www.torontomu.ca/calendar/2025-2026/programs/arts/sociology/table_i/",
+                        "section":  "Social Sciences"
+                    },
+                    {
+                        "id":  2,
+                        "url":  "https://www.torontomu.ca/calendar/2025-2026/programs/arts/sociology/",
+                        "title":  "https://www.torontomu.ca/calendar/2025-2026/programs/arts/sociology/",
+                        "section":  "Full-Time, Four-Year Program"
+                    },
+                    {
+                        "id":  3,
+                        "url":  "https://www.torontomu.ca/current-students/course-enrolment/course-intentions/",
+                        "title":  "https://www.torontomu.ca/current-students/course-enrolment/course-intentions/",
+                        "section":  "Understand your curriculum requirements"
+                    },
+                    {
+                        "id":  4,
+                        "url":  "https://www.torontomu.ca/arts/undergraduate/programs/",
+                        "title":  "https://www.torontomu.ca/arts/undergraduate/programs/",
+                        "section":  "Co-op opportunities"
+                    },
+                    {
+                        "id":  5,
+                        "url":  "https://www.torontomu.ca/career-coop-student-success/career-coop/coop/how-to-apply/",
+                        "title":  "https://www.torontomu.ca/career-coop-student-success/career-coop/coop/how-to-apply/",
+                        "section":  "Apply for Co-op"
+                    },
+                    {
+                        "id":  6,
+                        "url":  "https://www.torontomu.ca/myservicehub-support/students/academics/advisement-report/",
+                        "title":  "https://www.torontomu.ca/myservicehub-support/students/academics/advisement-report/",
+                        "section":  "Part-Time Undergraduate Degree Students"
+                    }
+                ],
+    "latency_ms":  4569,
+    "timings":  {
+                    "cache_ms":  0,
+                    "retrieve_ms":  839,
+                    "prompt_ms":  0,
+                    "llm_ms":  3726,
+                    "total_ms":  4569
+                },
+    "cached":  false
+}
+
+==================================================
+What courses should I pick for Politics and Governance second year?
+==================================================
+{
+    "answer":  "A second-year student in the Politics and Governance program at TMU Faculty of Arts should take the following courses according to the 2025-2026 undergraduate calendar:\n\n- Required courses:\n  - POG 230 Quantitative Methods in Political Science\n  - POG 235 Western Political Thought\n  - SSH 301 Research Design and Qualitative Methods\n\n- Core Electives:\n  - Two courses from the following introductory sub-fields (choose at least two):\n    - POG 210 Power and Authority in Canada\n    - POG 214 Controversial Policy Topics\n    - POG 225 Global Governance\n    - POG 240 Introduction to Comparative Politics\n  - Two additional courses from Table II (Politics and Governance), typically at the 200- or 300-level\n\n- Liberal Studies:\n  - Two courses from Table A - Lower Level Liberal Studies\n\n- Open Electives:\n  - One course 
+from Table I or one Open Elective\n\nThis curriculum corresponds to semesters three and four (second year) in the full-time, four-year Politics and Governance program [2][9].\n\nNote: The program requires a total of eight Table II Politics and Governance courses overall, with at least three at the 400-level in later years [4][10].\n\nCo-op is optional and typically extends the program to five years; the standard full-time path is four years [3][7][8].",
+    "sources":  [
+                    {
+                        "id":  1,
+                        "url":  "https://www.torontomu.ca/calendar/2025-2026/programs/arts/politics_gov_sociology/",
+                        "title":  "https://www.torontomu.ca/calendar/2025-2026/programs/arts/politics_gov_sociology/",
+                        "section":  "Program Overview/Curriculum Information"
+                    },
+                    {
+                        "id":  2,
+                        "url":  "https://www.torontomu.ca/calendar/2025-2026/programs/arts/politics/",
+                        "title":  "https://www.torontomu.ca/calendar/2025-2026/programs/arts/politics/",
+                        "section":  "Program Overview/Curriculum Information"
+                    },
+                    {
+                        "id":  3,
+                        "url":  "https://www.torontomu.ca/calendar/2025-2026/programs/arts/english/",
+                        "title":  "https://www.torontomu.ca/calendar/2025-2026/programs/arts/english/",
+                        "section":  "Program Overview/Curriculum Information"
+                    },
+                    {
+                        "id":  4,
+                        "url":  "https://www.torontomu.ca/career-coop-student-success/career-coop/coop/how-to-apply/",
+                        "title":  "https://www.torontomu.ca/career-coop-student-success/career-coop/coop/how-to-apply/",
+                        "section":  "Apply for Co-op"
+                    },
+                    {
+                        "id":  5,
+                        "url":  "https://www.torontomu.ca/calendar/2025-2026/programs/arts/history_politics_governance/",
+                        "title":  "https://www.torontomu.ca/calendar/2025-2026/programs/arts/history_politics_governance/",
+                        "section":  "Full-Time, Four-Year Program"
+                    }
+                ],
+    "latency_ms":  7083,
+    "timings":  {
+                    "cache_ms":  0,
+                    "retrieve_ms":  2977,
+                    "prompt_ms":  0,
+                    "llm_ms":  4101,
+                    "total_ms":  7083
+                },
+    "cached":  false
+}
+
+==================================================
+What courses should I pick for Politics and Governance third year?
+==================================================
+{
+    "answer":  "A third-year student in the Politics and Governance program at TMU Faculty of Arts should take the following courses according to the Full-Time, Four-Year Program curriculum:\n\n- Four Politics and Governance electives from Table II courses. Note that a minimum of eight Table II courses must be taken in total during the degree, with at least three at the 400-level [3][4].\n- For the Sociology component (if in the combined Politics and Governance and Sociology program), courses include:\n  - Contemporary Sociological Theory (SOC 475)\n  - Survey Design and Analysis (SOC 481)\n  - One advanced methods course from either Advanced Methods of Media Analysis (SOC 482) or Statistical Modelling (SOC 483)\n  - One course focusing on social inequality from options such as SOC 300, SOC 420, SOC 525, or SOC 608 [1][4].\n- Two upper-level Liberal Studies courses from Table B, outside of Politics and Governance and Sociology [1][3].\n- If in the Politics and Governance single program, third year focuses on four Politics and Governance electives, with no specific required courses listed beyond the second-year requirements (e.g., POG 235 Western Political Thought, POG 210, POG 225, POG 240) [1][9].\n\nIn summary, for a standard full-time third year in Politics and Governance (single program), students take four Politics and Governance electives (Table II courses) plus two upper-level Liberal Studies courses. For the combined Politics and Governance and Sociology program, additional Sociology courses as listed above are required alongside the Politics and Governance electives and Liberal Studies [1][3][4].\n\nNo specific co-op courses are required unless the student opts into the co-op program, which may extend the degree duration [5][10].",
+    "sources":  [
+                    {
+                        "id":  1,
+                        "url":  "https://www.torontomu.ca/calendar/2025-2026/programs/arts/politics_gov_sociology/",
+                        "title":  "https://www.torontomu.ca/calendar/2025-2026/programs/arts/politics_gov_sociology/",
+                        "section":  "Program Overview/Curriculum Information"
+                    },
+                    {
+                        "id":  2,
+                        "url":  "https://www.torontomu.ca/calendar/2025-2026/programs/arts/politics/",
+                        "title":  "https://www.torontomu.ca/calendar/2025-2026/programs/arts/politics/",
+                        "section":  "Program Overview/Curriculum Information"
+                    },
+                    {
+                        "id":  3,
+                        "url":  "https://www.torontomu.ca/calendar/2025-2026/programs/arts/history_philosophy/",
+                        "title":  "https://www.torontomu.ca/calendar/2025-2026/programs/arts/history_philosophy/",
+                        "section":  "Program Overview/Curriculum Information"
+                    },
+                    {
+                        "id":  4,
+                        "url":  "https://www.torontomu.ca/calendar/2025-2026/programs/arts/history_politics_governance/",
+                        "title":  "https://www.torontomu.ca/calendar/2025-2026/programs/arts/history_politics_governance/",
+                        "section":  "Full-Time, Four-Year Program"
+                    },
+                    {
+                        "id":  5,
+                        "url":  "https://www.torontomu.ca/calendar/2025-2026/programs/arts/english/",
+                        "title":  "https://www.torontomu.ca/calendar/2025-2026/programs/arts/english/",
+                        "section":  "Program Overview/Curriculum Information"
+                    },
+                    {
+                        "id":  6,
+                        "url":  "https://www.torontomu.ca/career-coop-student-success/career-coop/coop/how-to-apply/",
+                        "title":  "https://www.torontomu.ca/career-coop-student-success/career-coop/coop/how-to-apply/",
+                        "section":  "Apply for Co-op"
+                    }
+                ],
+    "latency_ms":  7528,
+    "timings":  {
+                    "cache_ms":  0,
+                    "retrieve_ms":  2946,
+                    "prompt_ms":  0,
+                    "llm_ms":  4578,
+                    "total_ms":  7528
+                },
+    "cached":  false
+}
+
+==================================================
+What courses should I pick for Politics and Governance fourth year?
+==================================================
+{
+    "answer":  "A fourth-year student in the Politics and Governance program at TMU Faculty of Arts, following the standard full-time, four-year program, should take the following courses:\n\n1. Four Politics and Governance electives from Table II, with at least three of these courses at the 400-level. A total of eight Table II courses must be completed in the program overall [1], [5], [8].\n\n2. Two Sociology electives from Table II (Sociology) [1].\n\n3. Required Sociology courses:\n   - SOC 427 Indigenous Perspectives on Canada\n   - SOC 490 Capstone: Specializing Your Knowledge [1].\n\n4. Two upper-level Liberal Studies courses from Table B (disciplines outside Politics and Governance and Sociology) [1].\n\nThis is the curriculum structure for the final year (semesters seven and eight) of the Politics and Governance and Sociology combined 
+program, which includes the Politics and Governance requirements. The emphasis is on advanced Politics and Governance electives (400-level), Sociology electives including Indigenous perspectives and a capstone, and upper-level Liberal Studies courses [1], [2].\n\nIf the student is in 
+the Politics and Governance single program (not combined with Sociology), the fourth year similarly requires four Politics and Governance electives from Table II, with at least three at the 400-level, plus two upper-level Liberal Studies courses from Table B [1], [8].\n\nNo specific course codes for the fourth year Politics and Governance electives are mandated beyond the Table II requirement, allowing students to select from advanced offerings in the discipline.\n\nCo-op options exist but typically extend the program to five years and are optional [3], [9].\n\nIn summary, for a fourth-year Politics and Governance student in the Faculty of Arts at TMU:\n\n- Take four Politics and Governance electives from Table II (at least three at 400-level).\n- Complete required Sociology courses SOC 427 and SOC 490 (if in combined program).\n- Take two upper-level Liberal Studies courses from Table B.\n- Ensure a total of eight Table II Politics and Governance courses are completed in the degree, including the advanced-level courses in the final year [1], [5], [8].",
+    "sources":  [
+                    {
+                        "id":  1,
+                        "url":  "https://www.torontomu.ca/calendar/2025-2026/programs/arts/politics_gov_sociology/",
+                        "title":  "https://www.torontomu.ca/calendar/2025-2026/programs/arts/politics_gov_sociology/",
+                        "section":  "Full-Time, Four-Year Program"
+                    },
+                    {
+                        "id":  2,
+                        "url":  "https://www.torontomu.ca/calendar/2025-2026/programs/arts/politics/",
+                        "title":  "https://www.torontomu.ca/calendar/2025-2026/programs/arts/politics/",
+                        "section":  "Program Overview/Curriculum Information"
+                    },
+                    {
+                        "id":  3,
+                        "url":  "https://www.torontomu.ca/career-coop-student-success/career-coop/coop/how-to-apply/",
+                        "title":  "https://www.torontomu.ca/career-coop-student-success/career-coop/coop/how-to-apply/",
+                        "section":  "Apply for Co-op"
+                    },
+                    {
+                        "id":  4,
+                        "url":  "https://www.torontomu.ca/calendar/2025-2026/programs/arts/history_politics_governance/",
+                        "title":  "https://www.torontomu.ca/calendar/2025-2026/programs/arts/history_politics_governance/",
+                        "section":  "Full-Time, Four-Year Program"
+                    },
+                    {
+                        "id":  5,
+                        "url":  "https://www.torontomu.ca/arts/undergraduate/programs/",
+                        "title":  "https://www.torontomu.ca/arts/undergraduate/programs/",
+                        "section":  "Co-op opportunities"
+                    }
+                ],
+    "latency_ms":  7735,
+    "timings":  {
+                    "cache_ms":  0,
+                    "retrieve_ms":  2986,
+                    "prompt_ms":  0,
+                    "llm_ms":  4745,
+                    "total_ms":  7735
+                },
+    "cached":  false
+}
+PS C:\Users\Matthew\Desktop\IDEs\VSCode Projects\TMU-Chatbot>

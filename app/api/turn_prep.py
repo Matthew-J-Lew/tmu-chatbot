@@ -452,8 +452,9 @@ def _query_for_pending_intent(intent: str, program: str) -> str:
 
 def _program_requirements_query(program: str) -> str:
     return (
-        f"What are the required courses, first-year requirements, and degree requirements "
-        f"for the {program} program in TMU Faculty of Arts? Use the undergraduate calendar when possible."
+        f"What are the required courses, year-by-year requirements, and degree requirements "
+        f"for the {program} program in TMU Faculty of Arts? Use the exact undergraduate calendar page and its Table I/II or Required Group sections when relevant, "
+        f"and avoid combined-program or other-program Arts calendar pages unless absolutely necessary."
     )
 
 
@@ -461,8 +462,9 @@ def _course_planning_query(program: str, study_year: str) -> str:
     year_phrase = study_year.replace("-", " ")
     return (
         f"What courses should a {year_phrase} student in the {program} program take in TMU Faculty of Arts? "
-        f"Prioritize the exact undergraduate calendar curriculum tables, first-year requirements, Table I/II pages, Required Group sections, "
+        f"Prioritize the exact undergraduate calendar curriculum tables, year-specific requirements, Table I/II pages, Required Group sections, "
         f"and the Full-Time, Four-Year Program for the exact {program} page. "
+        f"Prefer exact table rows and year-specific required-course lists over general overview prose, and avoid combined-program or other-program Arts calendar pages unless absolutely necessary. "
         f"Unless the student explicitly asks about co-op, default to the standard full-time four-year path and mention any co-op variation only briefly if relevant."
     )
 

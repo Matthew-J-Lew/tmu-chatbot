@@ -28,7 +28,7 @@ st_mod.CrossEncoder = DummyCrossEncoder
 sys.modules.setdefault("sentence_transformers", st_mod)
 
 from app.api.retrieval_policy import choose_retrieval_policy
-from app.rag.retrieval import _apply_policy_preferences
+from app.rag.retrieval import _apply_policy_preferences, _suppress_other_program_pages
 
 
 def _cand(url: str, section: str, score: float = 1.0):
@@ -75,3 +75,24 @@ def test_program_requirements_still_prefers_exact_program_over_sibling_pages():
     urls = [c["chunk_url"] for c in ranked]
     assert urls[0].endswith('/table_i/') or urls[0].endswith('/criminology/')
     assert urls[-1].endswith('/criminology_history/')
+
+
+def test_other_arts_calendar_program_pages_are_suppressed_when_exact_family_exists():
+    policy = choose_retrieval_policy(
+        "What courses should I pick for Psychology second year?",
+        "What courses should a second year student in the Psychology program take in TMU Faculty of Arts? Prefer exact table rows and avoid combined-program or other-program Arts calendar pages unless absolutely necessary.",
+    )
+    candidates = [
+        _cand("https://www.torontomu.ca/calendar/2025-2026/programs/arts/psychology/", "Full-Time, Four-Year Program", 2.0),
+        _cand("https://www.torontomu.ca/calendar/2025-2026/programs/arts/psychology/table_i/", "Psychology Table I", 2.0),
+        _cand("https://www.torontomu.ca/calendar/2025-2026/programs/arts/history/", "Full-Time, Four-Year Program", 2.5),
+        _cand("https://www.torontomu.ca/calendar/2025-2026/programs/arts/english/", "Full-Time, Four-Year Program", 2.4),
+    ]
+
+    ranked = _apply_policy_preferences(candidates, policy, use_rerank=False)
+    filtered = _suppress_other_program_pages(ranked, policy)
+    urls = [c["chunk_url"] for c in filtered]
+    assert any(url.endswith('/psychology/') for url in urls)
+    assert any(url.endswith('/psychology/table_i/') for url in urls)
+    assert not any(url.endswith('/history/') for url in urls)
+    assert not any(url.endswith('/english/') for url in urls)

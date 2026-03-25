@@ -196,19 +196,41 @@ def _is_student_support_question(q: str) -> bool:
 def _calendar_policy(label: str, effective_question: str, slug: str, *, prefer_coop: bool = False) -> RetrievalPolicy:
     base_path_2025 = f"/calendar/2025-2026/programs/arts/{slug}"
     base_path_2026 = f"/calendar/2026-2027/programs/arts/{slug}"
-    preferred_sections = [
-        "table i",
-        "table ii",
-        "required group",
-        "core elective",
-        "full-time, four-year program",
-        "program overview/curriculum information",
-        "liberal studies",
-        "open electives",
-    ]
-    if prefer_coop:
-        preferred_sections.insert(4, "full-time, five-year co-op program")
-    discouraged_sections = () if prefer_coop else ("full-time, five-year co-op program",)
+
+    if label == "COURSE_PLANNING_CALENDAR":
+        preferred_sections = [
+            "table i",
+            "table ii",
+            "required group",
+            "core elective",
+            "full-time, four-year program",
+            "liberal studies",
+            "open electives",
+        ]
+        discouraged_sections = ["program overview/curriculum information"]
+        if prefer_coop:
+            preferred_sections.insert(5, "full-time, five-year co-op program")
+        else:
+            discouraged_sections.append("full-time, five-year co-op program")
+        same_source_limit = 3
+    else:
+        preferred_sections = [
+            "full-time, four-year program",
+            "program overview/curriculum information",
+            "table i",
+            "table ii",
+            "required group",
+            "core elective",
+            "liberal studies",
+            "open electives",
+        ]
+        if prefer_coop:
+            preferred_sections.insert(2, "full-time, five-year co-op program")
+            discouraged_sections = []
+        else:
+            discouraged_sections = ["full-time, five-year co-op program"]
+        same_source_limit = 4
+
     return RetrievalPolicy(
         label=label,
         retrieval_query=effective_question,
@@ -229,8 +251,8 @@ def _calendar_policy(label: str, effective_question: str, slug: str, *, prefer_c
             "/career-coop-student-success/",
         ),
         preferred_section_terms=tuple(preferred_sections),
-        discouraged_section_terms=discouraged_sections,
-        same_source_limit=4,
+        discouraged_section_terms=tuple(discouraged_sections),
+        same_source_limit=same_source_limit,
         program_slug=slug,
     )
 
