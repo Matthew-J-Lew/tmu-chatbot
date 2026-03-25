@@ -65,6 +65,15 @@ profiles:
       - https://www.torontomu.ca/career-coop-student-success/career-coop/coop/co-op-programs/
       - https://www.torontomu.ca/curriculum-advising/curriculum-requirements/
       - https://www.torontomu.ca/curriculum-advising/curriculum-requirements/program-requirements/
+      - https://www.torontomu.ca/current-students/course-enrolment/
+      - https://www.torontomu.ca/current-students/course-enrolment/wait-list/
+      - https://www.torontomu.ca/current-students/course-enrolment/course-intentions/
+      - https://www.torontomu.ca/current-students/course-enrolment/drops-withdrawals/drop-course/
+      - https://www.torontomu.ca/current-students/academic-consideration/
+      - https://www.torontomu.ca/myservicehub-support/students/academics/
+      - https://www.torontomu.ca/myservicehub-support/students/academics/advisement-report/
+      - https://www.torontomu.ca/calendar/2025-2026/dates/
+      - https://www.torontomu.ca/calendar/2026-2027/dates/
     allowed_domains:
       - www.torontomu.ca
       - torontomu.ca
@@ -74,6 +83,11 @@ profiles:
       - /student-financial-assistance
       - /career-coop-student-success/career-coop
       - /curriculum-advising/curriculum-requirements
+      - /current-students/course-enrolment
+      - /current-students/academic-consideration
+      - /myservicehub-support/students/academics
+      - /calendar/2025-2026/dates
+      - /calendar/2026-2027/dates
     deny_path_regex:
       - ^/admissions/undergraduate$
       - ^/admissions/undergraduate/(after-applying|admitted-students|decision-release-dates|denied-students|future-student-events|new-students)(?:/|$)

@@ -62,3 +62,12 @@ def test_load_profiles_yaml_resolves_generated_profile_from_env(monkeypatch):
     ]
     assert "/calendar/2026-2027/programs/arts" in profile["allowed_path_prefixes"]
     assert any("/calendar/2026-2027/sitemap" in pat for pat in profile["allowed_path_regex"])
+
+
+def test_tmu_core_profile_includes_common_student_service_paths():
+    data = load_profiles_yaml("app/crawler/profiles.yaml")
+    profile = data["profiles"]["tmu_core"]
+    assert "https://www.torontomu.ca/current-students/course-enrolment/" in profile["seeds"]
+    assert "https://www.torontomu.ca/myservicehub-support/students/academics/" in profile["seeds"]
+    assert "/current-students/course-enrolment" in profile["allowed_path_prefixes"]
+    assert "/myservicehub-support/students/academics" in profile["allowed_path_prefixes"]

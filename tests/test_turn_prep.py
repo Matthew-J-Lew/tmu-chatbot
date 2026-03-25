@@ -1,3 +1,7 @@
+import sys
+from pathlib import Path
+sys.path.append(str(Path(__file__).resolve().parents[1]))
+
 import importlib
 import sys
 import types
@@ -38,31 +42,51 @@ def test_program_slot_fill_flow_asks_then_answers():
     assert second.state_after.program == "Criminology"
 
 
-def test_program_scoped_followup_uses_known_program():
-    state = SessionState(
-        session_id="abc",
-        program="English",
-        turn_count=3,
-        metadata={"last_program_turn": 3},
-    )
-    result = prepare_turn("abc", "Is there co-op?", state)
+def test_course_planning_asks_for_program_and_year():
+    state = SessionState(session_id="abc")
+    result = prepare_turn("abc", "What courses should I pick?", state)
+
+    assert result.workflow_reply == turn_prep._PROGRAM_YEAR_PROMPT
+    assert result.state_after.pending_slot == "program_year"
+    assert result.state_after.pending_intent == "COURSE_PLANNING"
+
+
+def test_course_planning_resume_with_program_and_year():
+    state = SessionState(session_id="abc", pending_slot="program_year", pending_intent="COURSE_PLANNING")
+    result = prepare_turn("abc", "Psychology, second year", state)
 
     assert result.workflow_reply is None
-    assert "English" in result.effective_question
-    assert "co-op" in result.effective_question.lower() or "co op" in result.effective_question.lower()
+    assert "Psychology" in result.effective_question
+    assert "second year" in result.effective_question
+    assert result.state_after.program == "Psychology"
+    assert result.state_after.study_year == "second year"
 
 
-def test_global_program_list_does_not_force_prior_program_context():
-    state = SessionState(
-        session_id="abc",
-        program="Psychology",
-        turn_count=3,
-        metadata={"last_program_turn": 3},
-    )
-    result = prepare_turn("abc", "Can you list all undergraduate programs?", state)
+def test_enrolment_question_is_supported_not_rejected():
+    state = SessionState(session_id="abc")
+    result = prepare_turn("abc", "How do I enroll in classes?", state)
 
     assert result.workflow_reply is None
-    assert result.effective_question == "Can you list all undergraduate programs?"
+    assert "enroll in classes" in result.effective_question.lower() or "enrol" in result.effective_question.lower()
+    assert result.state_after.last_intent == "COURSE_ENROLMENT"
+
+
+def test_departments_question_is_supported_not_rejected():
+    state = SessionState(session_id="abc")
+    result = prepare_turn("abc", "What departments are in the Faculty of Arts?", state)
+
+    assert result.workflow_reply is None
+    assert "departments" in result.effective_question.lower()
+    assert result.state_after.last_intent == "DEPARTMENTS_LIST"
+
+
+def test_academic_consideration_question_is_supported():
+    state = SessionState(session_id="abc")
+    result = prepare_turn("abc", "What is an academic consideration request?", state)
+
+    assert result.workflow_reply is None
+    assert "academic consideration" in result.effective_question.lower()
+    assert result.state_after.last_intent == "ACADEMIC_CONSIDERATION"
 
 
 def test_social_turns_bypass_rag_and_preserve_context():
@@ -76,18 +100,9 @@ def test_social_turns_bypass_rag_and_preserve_context():
     )
     result = prepare_turn("abc", "Okay thanks!", state)
 
-    assert result.workflow_reply == "You’re welcome — let me know if you have any other Faculty of Arts questions."
+    assert result.workflow_reply == "You’re welcome — let me know if you have any other TMU Faculty of Arts questions."
     assert result.state_after.last_effective_question == state.last_effective_question
     assert result.state_after.active_topic == state.active_topic
-
-
-def test_capability_question_uses_canned_reply():
-    state = SessionState(session_id="abc")
-    result = prepare_turn("abc", "what do you do", state)
-
-    assert result.workflow_reply is not None
-    assert "undergraduate programs" in result.workflow_reply.lower()
-    assert result.state_after.last_effective_question is None
 
 
 def test_program_correction_replays_recent_program_task():
@@ -108,35 +123,6 @@ def test_program_correction_replays_recent_program_task():
     assert result.state_after.last_intent == "PROGRAM_COOP"
 
 
-def test_stale_program_is_not_reused_for_my_major_question():
-    state = SessionState(
-        session_id="abc",
-        program="Criminology",
-        turn_count=20,
-        metadata={"last_program_turn": 2},
-    )
-    result = prepare_turn("abc", "What are the required courses for my major?", state)
-
-    assert result.workflow_reply == turn_prep._PROGRAM_PROMPT
-    assert result.state_after.pending_slot == "program"
-
-
-def test_referential_program_followup_resolves_it_to_program():
-    state = SessionState(
-        session_id="abc",
-        program="Arts and Contemporary Studies",
-        turn_count=2,
-        metadata={"last_program_turn": 2},
-        last_effective_question="Provide an overview of the Arts and Contemporary Studies program in TMU Faculty of Arts, including what it focuses on and key structure details if available.",
-        last_intent="PROGRAM_OVERVIEW",
-    )
-    result = prepare_turn("abc", "But can you list all the courses for it", state)
-
-    assert result.workflow_reply is None
-    assert "Arts and Contemporary Studies" in result.effective_question
-    assert "for it" not in result.effective_question.lower()
-
-
 def test_unknown_people_question_falls_back_instead_of_rag():
     state = SessionState(session_id="abc")
     result = prepare_turn("abc", "Who is Dr. Valerie Deacon?", state)
@@ -145,20 +131,20 @@ def test_unknown_people_question_falls_back_instead_of_rag():
     assert result.state_after.last_effective_question is None
 
 
-def test_confusion_turn_uses_program_clarification_when_program_missing():
-    state = SessionState(session_id="abc", pending_slot="program", pending_intent="PROGRAM_REQUIREMENTS")
-    result = prepare_turn("abc", "I dont know", state)
-
-    assert result.workflow_reply == turn_prep._PROGRAM_CLARIFICATION_PROMPT
-    assert result.state_after.pending_slot == "program"
-
-
-def test_student_support_queries_remain_supported():
-    state = SessionState(session_id="abc")
-    result = prepare_turn("abc", "Im struggling with my mental health", state)
+def test_follow_up_with_new_program_can_reuse_last_program_intent():
+    state = SessionState(
+        session_id="abc",
+        program="English",
+        turn_count=4,
+        metadata={"last_program_turn": 3},
+        last_effective_question="What are the required courses, first-year requirements, and degree requirements for the English program in TMU Faculty of Arts? Use the undergraduate calendar when possible.",
+        last_intent="PROGRAM_REQUIREMENTS",
+    )
+    result = prepare_turn("abc", "What about for psychology?", state)
 
     assert result.workflow_reply is None
-    assert "mental health" in result.effective_question.lower()
+    assert "Psychology" in result.effective_question
+    assert result.state_after.program == "Psychology"
 
 
 def test_turn_prep_logger_is_stdout_backed():

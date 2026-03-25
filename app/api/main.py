@@ -54,6 +54,8 @@ from app.api.cache import init_redis, close_redis, make_cache_key, cache_get_jso
 from app.api.llm_client import init_llm_client, close_llm_client, generate, generate_stream
 from app.api.session_store import clear_session_state, load_session_state, save_session_state
 from app.api.turn_prep import TurnPrepResult, prepare_turn
+from app.api.retrieval_policy import RetrievalPolicy, choose_retrieval_policy
+from app.api.canonical_facts import maybe_answer_canonical_finite_question
 
 from app.rag.retrieval import retrieve
 
@@ -376,21 +378,42 @@ def workflow_payload(answer: str, start_total: float, cache_ms: int = 0) -> Dict
     }
 
 
-async def retrieve_chunks(question: str) -> tuple[List[Dict[str, Any]], int]:
+def canonical_payload(answer: str, sources: List[Dict[str, Any]], start_total: float, cache_ms: int = 0) -> Dict[str, Any]:
+    total_ms = int((perf_counter() - start_total) * 1000)
+    return {
+        "answer": answer,
+        "sources": sources,
+        "latency_ms": total_ms,
+        "timings": {
+            "cache_ms": cache_ms,
+            "retrieve_ms": 0,
+            "prompt_ms": 0,
+            "llm_ms": 0,
+            "total_ms": total_ms,
+        },
+        "cached": False,
+    }
+
+
+async def retrieve_chunks(question: str, policy: Optional[RetrievalPolicy] = None) -> tuple[List[Dict[str, Any]], int]:
     pool = get_pool()
     start_retrieve = perf_counter()
 
-    ret_key = make_cache_key("ret", normalize_question(question))
+    cache_q = (policy.retrieval_query or question) if policy else question
+    cache_token = policy.cache_token() if policy else "DEFAULT"
+    ret_key = make_cache_key("ret", f"{cache_token}::{normalize_question(cache_q)}")
     cached_ret = await cache_get_json(ret_key)
 
     if cached_ret and "chunks" in cached_ret:
         chunks = cached_ret["chunks"]
     else:
+        retrieval_query = (policy.retrieval_query or question) if policy else question
         chunks = await retrieve(
             pool=pool,
-            query=question,
+            query=retrieval_query,
             k=RAG_TOP_K,
             num_candidates=RAG_NUM_CANDIDATES,
+            policy=policy,
         )
         await cache_set_json(ret_key, {"chunks": chunks}, CACHE_TTL_RETRIEVAL)
 
@@ -421,14 +444,30 @@ async def chat(req: ChatRequest) -> ChatResponse:
     q = sanitize_question(req.question)
     turn = await prepare_session_turn(q, req.session_id)
     effective_q = turn.effective_question
-    normalized_effective = normalize_question(effective_q)
+    policy = choose_retrieval_policy(q, effective_q)
+    cache_question = policy.retrieval_query or effective_q
+    normalized_effective = normalize_question(cache_question)
 
     if turn.workflow_reply:
         return ChatResponse(**workflow_payload(turn.workflow_reply, start_total))
 
+    canonical = maybe_answer_canonical_finite_question(q, policy.label)
+    if canonical is not None:
+        payload = canonical_payload(
+            canonical.answer,
+            [
+                {"id": i, "url": s.url, "title": s.title, "section": s.section}
+                for i, s in enumerate(canonical.sources, start=1)
+            ],
+            start_total,
+        )
+        resp_key = make_cache_key("resp", f"{policy.cache_token()}::{normalized_effective}")
+        await cache_set_json(resp_key, payload, CACHE_TTL_RESPONSE)
+        return ChatResponse(**payload)
+
     # ---- Cache lookup (full response cache) ----
     start_cache = perf_counter()
-    resp_key = make_cache_key("resp", normalized_effective)
+    resp_key = make_cache_key("resp", f"{policy.cache_token()}::{normalized_effective}")
     cached_resp = await cache_get_json(resp_key)
     cache_ms = int((perf_counter() - start_cache) * 1000)
 
@@ -440,7 +479,7 @@ async def chat(req: ChatRequest) -> ChatResponse:
         return ChatResponse(**cached_resp)
 
     # ---- Retrieval (cache retrieval separately) ----
-    chunks, retrieve_ms = await retrieve_chunks(effective_q)
+    chunks, retrieve_ms = await retrieve_chunks(effective_q, policy=policy)
 
     # ---- Prompt building ----
     start_prompt = perf_counter()
@@ -492,6 +531,7 @@ async def admin_chat(req: AdminChatRequest) -> AdminChatResponse:
     q = sanitize_question(req.question)
     turn = await prepare_session_turn(q, req.session_id)
     effective_q = turn.effective_question
+    policy = choose_retrieval_policy(q, effective_q)
 
     if turn.workflow_reply:
         payload = workflow_payload(turn.workflow_reply, start_total)
@@ -507,6 +547,23 @@ async def admin_chat(req: AdminChatRequest) -> AdminChatResponse:
         }
         return AdminChatResponse(**payload)
 
+    canonical = maybe_answer_canonical_finite_question(q, policy.label)
+    if canonical is not None:
+        payload = canonical_payload(
+            canonical.answer,
+            [
+                {"id": i, "url": s.url, "title": s.title, "section": s.section}
+                for i, s in enumerate(canonical.sources, start=1)
+            ],
+            start_total,
+        )
+        payload["debug"] = {
+            "intent": detect_intent(effective_q).dict(),
+            "retrieval": {"top_k": 0, "num_candidates": 0, "rerank_enabled": bool(RERANK_ENABLED), "items": []},
+            "model": model_debug_info().dict(),
+        }
+        return AdminChatResponse(**payload)
+
     # Params (fallback to env defaults)
     top_k = (req.params.top_k if req.params and req.params.top_k is not None else RAG_TOP_K)
     num_candidates = (
@@ -518,7 +575,7 @@ async def admin_chat(req: AdminChatRequest) -> AdminChatResponse:
     # ---- Retrieval ----
     pool = get_pool()
     start_retrieve = perf_counter()
-    chunks = await retrieve(pool=pool, query=effective_q, k=top_k, num_candidates=num_candidates)
+    chunks = await retrieve(pool=pool, query=(policy.retrieval_query or effective_q), k=top_k, num_candidates=num_candidates, policy=policy)
     retrieve_ms = int((perf_counter() - start_retrieve) * 1000)
 
     # ---- Prompt building ----
@@ -598,15 +655,22 @@ async def chat_stream(req: ChatRequest):
     q = sanitize_question(req.question)
     turn = await prepare_session_turn(q, req.session_id)
     effective_q = turn.effective_question
-    normalized_effective = normalize_question(effective_q)
+    policy = choose_retrieval_policy(q, effective_q)
+    normalized_effective = normalize_question(policy.retrieval_query or effective_q)
 
     if turn.workflow_reply:
         async def _workflow_iter():
             yield turn.workflow_reply
         return StreamingResponse(_workflow_iter(), media_type="text/plain")
 
+    canonical = maybe_answer_canonical_finite_question(q, policy.label)
+    if canonical is not None:
+        async def _canonical_iter():
+            yield canonical.answer
+        return StreamingResponse(_canonical_iter(), media_type="text/plain")
+
     # If we already have a cached final response, stream it instantly
-    resp_key = make_cache_key("resp", normalized_effective)
+    resp_key = make_cache_key("resp", f"{policy.cache_token()}::{normalized_effective}")
     cached_resp = await cache_get_json(resp_key)
     if cached_resp and "answer" in cached_resp:
         async def _cached_iter():
@@ -615,7 +679,7 @@ async def chat_stream(req: ChatRequest):
         return StreamingResponse(_cached_iter(), media_type="text/plain")
 
     pool = get_pool()
-    chunks = await retrieve(pool=pool, query=effective_q, k=RAG_TOP_K, num_candidates=RAG_NUM_CANDIDATES)
+    chunks = await retrieve(pool=pool, query=(policy.retrieval_query or effective_q), k=RAG_TOP_K, num_candidates=RAG_NUM_CANDIDATES, policy=policy)
     messages, _sources = build_messages_and_sources(effective_q, chunks)
 
     async def _iter():
