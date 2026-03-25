@@ -17,58 +17,51 @@ _SUPPORTED_ACADEMIC_INTENTS = {
     "PROGRAM_OVERVIEW",
     "PROGRAMS_LIST_UNDERGRAD",
     "PROGRAMS_LIST_GRAD",
-    "DEPARTMENTS_LIST",
     "MINOR_CERTIFICATE",
     "ADMISSIONS",
     "STUDENT_SUPPORT",
     "ACADEMIC_FOLLOW_UP",
-    "COURSE_ENROLMENT",
-    "COURSE_WAITLIST",
-    "COURSE_MANAGEMENT",
     "COURSE_PLANNING",
-    "PROGRAM_CHANGE",
-    "ADVISOR_CONTACT",
-    "IMPORTANT_DATES",
-    "ACADEMIC_CONSIDERATION",
-    "ACADEMIC_STANDING",
-    "GRADUATION_PROGRESS",
-    "GENERAL_STUDENT_INFO",
 }
 _PROGRAM_REQUIRED_INTENTS = {"PROGRAM_REQUIREMENTS", "PROGRAM_COOP", "PROGRAM_OVERVIEW"}
-_PROGRAM_AND_YEAR_HELPFUL_INTENTS = {"COURSE_PLANNING", "GRADUATION_PROGRESS"}
 _PROGRAM_CONTEXT_MAX_AGE = 8
-_YEAR_CONTEXT_MAX_AGE = 8
+_YEAR_CONTEXT_MAX_AGE = 6
 
 _PROGRAM_PROMPT = (
-    "I can help with that. Which Faculty of Arts program are you in "
-    "(for example: Criminology BA, English BA, or Psychology BA)?"
-)
-_PROGRAM_YEAR_PROMPT = (
-    "I can help with that. What program are you in, and what year are you in right now "
-    "(for example: first year or second year)?"
-)
-_YEAR_PROMPT = (
-    "What year are you in right now (for example: first year or second year)?"
+    "Each program has different degree requirements. Which program are you in "
+    "(for example: Criminology BA, English BA, Psychology BA)?"
 )
 _PROGRAM_CLARIFICATION_PROMPT = (
-    "No problem — tell me your Faculty of Arts program "
-    "(for example: Criminology BA, English BA, or Psychology BA) and I can help from there."
+    "No problem - tell me your Faculty of Arts program "
+    "(for example: Criminology BA, English BA, Psychology BA) and I can help from there."
+)
+_COURSE_PLANNING_PROGRAM_PROMPT = (
+    "I can help with that. Which Faculty of Arts program are you in "
+    "(for example: Criminology, English, or Psychology)?"
+)
+_YEAR_PROMPT = (
+    "What year are you in "
+    "(for example: first year, second year, third year, or fourth year)?"
 )
 _FALLBACK_REPLY = (
-    "I’m best at TMU Faculty of Arts questions about programs, courses, enrolment, requirements, co-op, minors, "
-    "advising, admissions, and related student support. Could you tell me a bit more about what you need?"
+    "Sorry, I didn't quite understand that. I can help with Faculty of Arts programs, "
+    "courses, requirements, co-op, minors, admissions, and related TMU information. "
+    "Could you be more specific?"
 )
 
 
 def _build_turn_prep_logger() -> logging.Logger:
+    """Create a logger that always writes turn-prep lines to container stdout."""
     logger = logging.getLogger("tmu.turn_prep")
     logger.setLevel(logging.INFO)
+
     if not any(getattr(h, "_tmu_turn_prep_handler", False) for h in logger.handlers):
         handler = logging.StreamHandler(sys.stdout)
         handler.setLevel(logging.INFO)
         handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s"))
         handler._tmu_turn_prep_handler = True  # type: ignore[attr-defined]
         logger.addHandler(handler)
+
     logger.propagate = False
     return logger
 
@@ -98,16 +91,8 @@ class RoutedTurn:
 class ConversationAct:
     kind: str
     program: Optional[str] = None
-    study_year: Optional[str] = None
     academic_intent: Optional[str] = None
-
-
-@dataclass(frozen=True)
-class PendingResolution:
-    effective_question: Optional[str] = None
-    workflow_reply: Optional[str] = None
-    intent_label: Optional[str] = None
-    clear_pending: bool = False
+    study_year: Optional[str] = None
 
 
 def prepare_turn(session_id: str, user_question: str, state_before: SessionState) -> TurnPrepResult:
@@ -118,13 +103,12 @@ def prepare_turn(session_id: str, user_question: str, state_before: SessionState
     state_after.metadata = dict(state_after.metadata or {})
 
     detected_program = match_program(user_question)
-    detected_year = _match_study_year(user_question)
-    act = _classify_conversation_act(user_question, state_before, detected_program, detected_year)
+    act = _classify_conversation_act(user_question, state_before, detected_program)
 
     if detected_program and act.kind in {"PROGRAM_DECLARATION", "PROGRAM_CORRECTION"}:
         _remember_program(state_after, detected_program)
-    if detected_year:
-        _remember_study_year(state_after, detected_year)
+    if act.study_year:
+        _remember_study_year(state_after, act.study_year)
 
     effective_question = user_question.strip()
     workflow_reply: Optional[str] = None
@@ -135,39 +119,96 @@ def prepare_turn(session_id: str, user_question: str, state_before: SessionState
         effective_question = routed.effective_question or effective_question
         if routed.intent_label:
             state_after.last_intent = routed.intent_label
-            state_after.question_mode = routed.intent_label
         if routed.clear_pending_program:
             state_after.pending_slot = None
             state_after.pending_intent = None
         if not routed.preserve_context and not workflow_reply:
             state_after.active_topic = effective_question
     else:
-        academic_intent = act.academic_intent or "GENERAL_STUDENT_INFO"
+        academic_intent = act.academic_intent or "RAG_QA"
         state_after.last_intent = academic_intent
-        state_after.question_mode = academic_intent
 
-        pending = _handle_pending_context(user_question, state_before, state_after, academic_intent, detected_program, detected_year)
-        if pending is not None:
-            workflow_reply = pending.workflow_reply
-            if pending.effective_question:
-                effective_question = pending.effective_question
-            if pending.intent_label:
-                state_after.last_intent = pending.intent_label
-                state_after.question_mode = pending.intent_label
-            if pending.clear_pending:
+        if state_after.pending_slot == "program":
+            if detected_program:
+                _remember_program(state_after, detected_program)
+                resumed_intent = state_after.pending_intent or "PROGRAM_REQUIREMENTS"
+                if resumed_intent == "COURSE_PLANNING":
+                    year = act.study_year or _year_for_supported_turn(user_question, state_before)
+                    if year:
+                        _remember_study_year(state_after, year)
+                        effective_question = _course_planning_query(detected_program, year)
+                        state_after.pending_slot = None
+                        state_after.pending_intent = None
+                        state_after.last_intent = resumed_intent
+                        state_after.active_topic = effective_question
+                    else:
+                        state_after.pending_slot = "year"
+                        state_after.pending_intent = resumed_intent
+                        workflow_reply = _YEAR_PROMPT
+                else:
+                    effective_question = _query_for_pending_intent(resumed_intent, detected_program)
+                    state_after.pending_slot = None
+                    state_after.pending_intent = None
+                    state_after.last_intent = resumed_intent
+                    state_after.active_topic = effective_question
+            else:
+                workflow_reply = _COURSE_PLANNING_PROGRAM_PROMPT if state_after.pending_intent == "COURSE_PLANNING" else _PROGRAM_PROMPT
+        elif state_after.pending_slot == "year":
+            year = act.study_year or _extract_study_year(user_question)
+            if year and state_after.program:
+                _remember_study_year(state_after, year)
+                effective_question = _course_planning_query(state_after.program, year)
                 state_after.pending_slot = None
                 state_after.pending_intent = None
-                if not workflow_reply:
+                state_after.last_intent = "COURSE_PLANNING"
+                state_after.active_topic = effective_question
+            else:
+                workflow_reply = _YEAR_PROMPT
+        elif academic_intent == "COURSE_PLANNING":
+            program = detected_program or _program_for_supported_turn(user_question, state_before)
+            year = act.study_year or _year_for_supported_turn(user_question, state_before)
+            if program:
+                if detected_program:
+                    _remember_program(state_after, program)
+                    state_after.pending_slot = None
+                    state_after.pending_intent = None
+                if year:
+                    _remember_study_year(state_after, year)
+                    effective_question = _course_planning_query(program, year)
                     state_after.active_topic = effective_question
+                else:
+                    state_after.pending_slot = "year"
+                    state_after.pending_intent = academic_intent
+                    workflow_reply = _YEAR_PROMPT
+            else:
+                state_after.pending_slot = "program"
+                state_after.pending_intent = academic_intent
+                workflow_reply = _COURSE_PLANNING_PROGRAM_PROMPT
+        elif academic_intent in _PROGRAM_REQUIRED_INTENTS:
+            program = detected_program or _program_for_supported_turn(user_question, state_before)
+            if program:
+                if detected_program:
+                    _remember_program(state_after, program)
+                    state_after.pending_slot = None
+                    state_after.pending_intent = None
+                effective_question = _query_for_pending_intent(academic_intent, program)
+                state_after.active_topic = effective_question
+            else:
+                state_after.pending_slot = "program"
+                state_after.pending_intent = academic_intent
+                workflow_reply = _PROGRAM_PROMPT
+        elif academic_intent == "ACADEMIC_FOLLOW_UP":
+            effective_question = _rewrite_follow_up_with_context(user_question, state_before)
+            state_after.active_topic = effective_question
         else:
-            effective_question, workflow_reply = _handle_supported_academic_turn(
-                user_question=user_question,
-                state_before=state_before,
-                state_after=state_after,
-                academic_intent=academic_intent,
-                detected_program=detected_program,
-                detected_year=detected_year,
-            )
+            effective_question = _rewrite_supported_question(user_question, state_before)
+            if detected_program:
+                _remember_program(state_after, detected_program)
+                state_after.pending_slot = None
+                state_after.pending_intent = None
+            if act.study_year:
+                _remember_study_year(state_after, act.study_year)
+            state_after.active_topic = effective_question
 
     if workflow_reply:
         if not state_after.active_topic:
@@ -200,11 +241,15 @@ def _classify_conversation_act(
     question: str,
     state: SessionState,
     detected_program: Optional[str],
-    detected_year: Optional[str],
 ) -> ConversationAct:
     q = _normalize(question)
     if not q:
         return ConversationAct("EMPTY")
+
+    detected_year = _extract_study_year(question)
+
+    if state.pending_slot == "year" and detected_year:
+        return ConversationAct("YEAR_DECLARATION", study_year=detected_year)
 
     if detected_program and _is_program_declaration(question):
         if state.program and state.program != detected_program:
@@ -228,12 +273,9 @@ def _classify_conversation_act(
 
     academic_intent = _classify_supported_academic_intent(question, state, detected_program)
     if academic_intent in _SUPPORTED_ACADEMIC_INTENTS:
-        return ConversationAct("SUPPORTED_ACADEMIC", program=detected_program, study_year=detected_year, academic_intent=academic_intent)
+        return ConversationAct("SUPPORTED_ACADEMIC", program=detected_program, academic_intent=academic_intent, study_year=detected_year)
 
-    if _is_probably_on_domain_question(question, state):
-        return ConversationAct("SUPPORTED_ACADEMIC", program=detected_program, study_year=detected_year, academic_intent="GENERAL_STUDENT_INFO")
-
-    return ConversationAct("OFF_DOMAIN")
+    return ConversationAct("UNSUPPORTED", study_year=detected_year)
 
 
 def _route_conversation_act(
@@ -243,212 +285,141 @@ def _route_conversation_act(
 ) -> Optional[RoutedTurn]:
     if act.kind == "EMPTY":
         return RoutedTurn(
-            reply="I’m here when you’re ready — ask me about Faculty of Arts programs, courses, enrolment, requirements, or co-op.",
+            reply="I'm here when you're ready - ask me about Faculty of Arts programs, courses, requirements, or co-op.",
             intent_label="UTILITY",
             preserve_context=True,
         )
+
     if act.kind == "GREETING":
-        return RoutedTurn(reply="Hello! What can I help you with today?", intent_label="GREETING", preserve_context=True)
+        return RoutedTurn(
+            reply="Hello! What can I help you with today?",
+            intent_label="GREETING",
+            preserve_context=True,
+        )
+
     if act.kind == "ACKNOWLEDGEMENT":
         return RoutedTurn(
-            reply="You’re welcome — let me know if you have any other TMU Faculty of Arts questions.",
+            reply="You're welcome - let me know if you have any other Faculty of Arts questions.",
             intent_label="UTILITY",
             preserve_context=True,
         )
+
     if act.kind == "GOODBYE":
         return RoutedTurn(
             reply="Take care! If you need anything else about the Faculty of Arts, I’m here to help.",
             intent_label="UTILITY",
             preserve_context=True,
         )
+
     if act.kind == "BOT_IDENTITY":
         return RoutedTurn(
-            reply="I’m a TMU Faculty of Arts virtual assistant. I help with official Arts program information, requirements, enrolment, co-op, and related student resources.",
+            reply="I’m a TMU Faculty of Arts virtual assistant. I help with official Arts program information, requirements, courses, co-op, and related TMU resources.",
             intent_label="BOT_CAPABILITY",
             preserve_context=True,
         )
+
     if act.kind == "BOT_CAPABILITY":
         return RoutedTurn(
-            reply="I can help with Faculty of Arts undergraduate and graduate programs, required courses, enrolment, waitlists, co-op, minors, advising, admissions, and related TMU information.",
+            reply="I can help with Faculty of Arts undergraduate programs, required courses, degree requirements, co-op, minors, admissions, and related TMU information.",
             intent_label="BOT_CAPABILITY",
             preserve_context=True,
         )
+
     if act.kind == "CONFUSION":
-        reply = _PROGRAM_CLARIFICATION_PROMPT if state_before.pending_slot in {"program", "program_year"} else _FALLBACK_REPLY
+        if state_before.pending_slot == "program":
+            reply = _PROGRAM_CLARIFICATION_PROMPT
+        elif state_before.pending_slot == "year":
+            reply = _YEAR_PROMPT
+        else:
+            reply = _FALLBACK_REPLY
         return RoutedTurn(reply=reply, intent_label="UTILITY", preserve_context=True)
+
     if act.kind == "EMOTIONAL_REACTION":
         return RoutedTurn(
-            reply="I understand. If you want, ask me another TMU Faculty of Arts question and I’ll do my best to help.",
+            reply="I understand. If you want, you can ask another Faculty of Arts question and I’ll do my best to help.",
             intent_label="UTILITY",
             preserve_context=True,
         )
+
     if act.kind in {"PROGRAM_DECLARATION", "PROGRAM_CORRECTION"} and act.program:
         _remember_program(state_after, act.program)
         if act.study_year:
             _remember_study_year(state_after, act.study_year)
-        resumed_intent = state_before.pending_intent or _resume_program_intent(state_before)
+
+        pending_intent = state_before.pending_intent
+        resumed_intent = pending_intent or _resume_program_intent(state_before)
+        if resumed_intent == "COURSE_PLANNING":
+            year = act.study_year or _year_for_supported_turn(state_before.last_user_question or "", state_before)
+            if year:
+                _remember_study_year(state_after, year)
+                return RoutedTurn(
+                    effective_question=_course_planning_query(act.program, year),
+                    intent_label="COURSE_PLANNING",
+                    clear_pending_program=True,
+                )
+            state_after.pending_slot = "year"
+            state_after.pending_intent = "COURSE_PLANNING"
+            return RoutedTurn(
+                reply=_YEAR_PROMPT,
+                intent_label="COURSE_PLANNING",
+                preserve_context=True,
+            )
         if resumed_intent in _PROGRAM_REQUIRED_INTENTS:
             return RoutedTurn(
-                effective_question=_query_for_pending_intent(resumed_intent, program=act.program, study_year=act.study_year or state_before.study_year),
+                effective_question=_query_for_pending_intent(resumed_intent, act.program),
                 intent_label=resumed_intent,
                 clear_pending_program=True,
             )
-        if resumed_intent in _PROGRAM_AND_YEAR_HELPFUL_INTENTS:
-            year = act.study_year or state_before.study_year if _can_apply_year_context(state_before) else act.study_year
-            if not year:
-                state_after.pending_slot = "year"
-                state_after.pending_intent = resumed_intent
-                return RoutedTurn(reply=_YEAR_PROMPT, intent_label=resumed_intent, preserve_context=True)
-            return RoutedTurn(
-                effective_question=_query_for_pending_intent(resumed_intent, program=act.program, study_year=year),
-                intent_label=resumed_intent,
-                clear_pending_program=True,
-            )
+
         return RoutedTurn(
-            reply=f"Got it — I’ve updated your program to {act.program}. What would you like to know about it?",
+            reply=f"Got it - I've updated your program to {act.program}. What would you like to know about it?",
             intent_label="PROGRAM_DECLARATION",
             preserve_context=True,
             clear_pending_program=True,
         )
-    if act.kind == "OFF_DOMAIN":
+
+    if act.kind == "YEAR_DECLARATION" and act.study_year:
+        _remember_study_year(state_after, act.study_year)
+        if state_before.pending_intent == "COURSE_PLANNING" and state_before.program:
+            return RoutedTurn(
+                effective_question=_course_planning_query(state_before.program, act.study_year),
+                intent_label="COURSE_PLANNING",
+                clear_pending_program=True,
+            )
+        return RoutedTurn(
+            reply=f"Got it - you're in {act.study_year}. What would you like to know?",
+            intent_label="ACADEMIC_CONTEXT",
+            preserve_context=True,
+            clear_pending_program=True,
+        )
+
+    if act.kind == "UNSUPPORTED":
         return RoutedTurn(reply=_FALLBACK_REPLY, intent_label="FALLBACK", preserve_context=True)
-    return None
-
-
-def _handle_pending_context(
-    user_question: str,
-    state_before: SessionState,
-    state_after: SessionState,
-    academic_intent: str,
-    detected_program: Optional[str],
-    detected_year: Optional[str],
-) -> Optional[PendingResolution]:
-    slot = state_before.pending_slot
-    pending_intent = state_before.pending_intent or academic_intent
-    if not slot:
-        return None
-
-    program = detected_program or state_before.program if _can_apply_program_context(state_before) else detected_program
-    study_year = detected_year or state_before.study_year if _can_apply_year_context(state_before) else detected_year
-
-    if slot == "program":
-        if program:
-            return PendingResolution(
-                effective_question=_query_for_pending_intent(pending_intent, program=program, study_year=study_year),
-                intent_label=pending_intent,
-                clear_pending=True,
-            )
-        return PendingResolution(workflow_reply=_PROGRAM_PROMPT, intent_label=pending_intent)
-
-    if slot == "program_year":
-        if program and study_year:
-            return PendingResolution(
-                effective_question=_query_for_pending_intent(pending_intent, program=program, study_year=study_year),
-                intent_label=pending_intent,
-                clear_pending=True,
-            )
-        if program and not study_year:
-            state_after.pending_slot = "year"
-            state_after.pending_intent = pending_intent
-            return PendingResolution(workflow_reply=_YEAR_PROMPT, intent_label=pending_intent)
-        return PendingResolution(workflow_reply=_PROGRAM_YEAR_PROMPT, intent_label=pending_intent)
-
-    if slot == "year":
-        if study_year:
-            return PendingResolution(
-                effective_question=_query_for_pending_intent(pending_intent, program=state_before.program or detected_program, study_year=study_year),
-                intent_label=pending_intent,
-                clear_pending=True,
-            )
-        return PendingResolution(workflow_reply=_YEAR_PROMPT, intent_label=pending_intent)
 
     return None
 
 
-def _handle_supported_academic_turn(
-    user_question: str,
-    state_before: SessionState,
-    state_after: SessionState,
-    academic_intent: str,
+def _classify_supported_academic_intent(
+    question: str,
+    state: SessionState,
     detected_program: Optional[str],
-    detected_year: Optional[str],
-) -> tuple[str, Optional[str]]:
-    if state_after.pending_slot == "program":
-        return user_question.strip(), _PROGRAM_PROMPT
-
-    if academic_intent in _PROGRAM_REQUIRED_INTENTS:
-        program = detected_program or _program_for_supported_turn(user_question, state_before)
-        if program:
-            return _query_for_pending_intent(academic_intent, program=program, study_year=detected_year or state_before.study_year), None
-        state_after.pending_slot = "program"
-        state_after.pending_intent = academic_intent
-        return user_question.strip(), _PROGRAM_PROMPT
-
-    if academic_intent in _PROGRAM_AND_YEAR_HELPFUL_INTENTS:
-        program = detected_program or _program_for_supported_turn(user_question, state_before)
-        study_year = detected_year or (state_before.study_year if _can_apply_year_context(state_before) else None)
-        if program and study_year:
-            return _query_for_pending_intent(academic_intent, program=program, study_year=study_year), None
-        state_after.pending_slot = "program_year"
-        state_after.pending_intent = academic_intent
-        return user_question.strip(), _PROGRAM_YEAR_PROMPT
-
-    if academic_intent == "ACADEMIC_FOLLOW_UP":
-        if detected_program and state_before.last_intent in (_PROGRAM_REQUIRED_INTENTS | _PROGRAM_AND_YEAR_HELPFUL_INTENTS):
-            if detected_program:
-                _remember_program(state_after, detected_program)
-            return _query_for_pending_intent(
-                state_before.last_intent,
-                program=detected_program or state_before.program,
-                study_year=detected_year or state_before.study_year,
-            ), None
-        return _rewrite_follow_up_with_context(user_question, state_before), None
-
-    effective = _rewrite_supported_question(user_question, state_before, academic_intent, detected_program, detected_year)
-    if detected_program:
-        _remember_program(state_after, detected_program)
-    if detected_year:
-        _remember_study_year(state_after, detected_year)
-    state_after.active_topic = effective
-    return effective, None
-
-
-def _classify_supported_academic_intent(question: str, state: SessionState, detected_program: Optional[str]) -> Optional[str]:
+) -> Optional[str]:
     q = _normalize(question)
+
     if _asks_for_undergraduate_programs(q):
         return "PROGRAMS_LIST_UNDERGRAD"
     if _asks_for_graduate_programs(q):
         return "PROGRAMS_LIST_GRAD"
-    if _asks_about_departments(q):
-        return "DEPARTMENTS_LIST"
+    if _asks_for_course_planning(question):
+        return "COURSE_PLANNING"
     if _asks_for_required_classes(question):
         return "PROGRAM_REQUIREMENTS"
     if _asks_about_coop(q):
         return "PROGRAM_COOP"
-    if _asks_about_course_enrolment(q):
-        return "COURSE_ENROLMENT"
-    if _asks_about_waitlist_or_full_class(q):
-        return "COURSE_WAITLIST"
-    if _asks_about_course_management(q):
-        return "COURSE_MANAGEMENT"
-    if _asks_about_program_change(q):
-        return "PROGRAM_CHANGE"
-    if _asks_about_advisor(q):
-        return "ADVISOR_CONTACT"
-    if _asks_about_course_planning(q):
-        return "COURSE_PLANNING"
-    if _asks_about_graduation_progress(q):
-        return "GRADUATION_PROGRESS"
     if _asks_about_minor_or_certificate(q):
         return "MINOR_CERTIFICATE"
     if _asks_about_admissions(q):
         return "ADMISSIONS"
-    if _asks_about_important_dates(q):
-        return "IMPORTANT_DATES"
-    if _asks_about_academic_consideration(q):
-        return "ACADEMIC_CONSIDERATION"
-    if _asks_about_academic_standing(q):
-        return "ACADEMIC_STANDING"
     if _asks_about_student_support(q):
         return "STUDENT_SUPPORT"
     if detected_program and _asks_for_program_overview(q):
@@ -459,10 +430,13 @@ def _classify_supported_academic_intent(question: str, state: SessionState, dete
         return "ACADEMIC_FOLLOW_UP"
     if state.program and _can_apply_program_context(state) and _is_referential_program_followup(question):
         return "PROGRAM_REQUIREMENTS"
+
     return None
 
 
-def _query_for_pending_intent(intent: str, program: Optional[str] = None, study_year: Optional[str] = None) -> str:
+def _query_for_pending_intent(intent: str, program: str) -> str:
+    if intent == "COURSE_PLANNING":
+        return _course_planning_query(program, "first year")
     if intent == "PROGRAM_COOP":
         return (
             f"Is there a co-op option for the {program} program in TMU Faculty of Arts? "
@@ -473,21 +447,7 @@ def _query_for_pending_intent(intent: str, program: Optional[str] = None, study_
             f"Provide an overview of the {program} program in TMU Faculty of Arts, "
             f"including what it focuses on and key structure details if available."
         )
-    if intent == "PROGRAM_REQUIREMENTS":
-        return _program_requirements_query(program or "the selected")
-    if intent == "COURSE_PLANNING":
-        year_prefix = f"for a {study_year} student " if study_year else ""
-        return (
-            f"How should {year_prefix}in the {program} program at TMU Faculty of Arts plan courses? "
-            f"Use Advisement Report, academic advising, and program requirements guidance if available."
-        )
-    if intent == "GRADUATION_PROGRESS":
-        year_prefix = f"for a {study_year} student " if study_year else ""
-        return (
-            f"How can {year_prefix}in the {program} program at TMU Faculty of Arts check if they are on track to graduate? "
-            f"Use Advisement Report and advising resources if available."
-        )
-    return program or ""
+    return _program_requirements_query(program)
 
 
 def _program_requirements_query(program: str) -> str:
@@ -497,66 +457,44 @@ def _program_requirements_query(program: str) -> str:
     )
 
 
-def _rewrite_supported_question(
-    question: str,
-    state: SessionState,
-    academic_intent: str,
-    detected_program: Optional[str],
-    detected_year: Optional[str],
-) -> str:
+def _course_planning_query(program: str, study_year: str) -> str:
+    year_phrase = study_year.replace("-", " ")
+    return (
+        f"What courses should a {year_phrase} student in the {program} program take in TMU Faculty of Arts? "
+        f"Prioritize the exact undergraduate calendar curriculum tables, first-year requirements, Table I/II pages, Required Group sections, "
+        f"and the Full-Time, Four-Year Program for the exact {program} page. "
+        f"Unless the student explicitly asks about co-op, default to the standard full-time four-year path and mention any co-op variation only briefly if relevant."
+    )
+
+
+def _rewrite_supported_question(question: str, state: SessionState) -> str:
     q = question.strip()
     if not q:
         return q
 
+    explicit_program = match_program(q)
+    if explicit_program:
+        return q
+
     normalized = _normalize(q)
-    program = detected_program or (state.program if _can_apply_program_context(state) else None)
-    study_year = detected_year or (state.study_year if _can_apply_year_context(state) else None)
-
-    if academic_intent == "PROGRAMS_LIST_UNDERGRAD":
-        return "List every undergraduate program offered by the TMU Faculty of Arts. Include each program name exactly as shown on the Faculty of Arts undergraduate programs page."
-    if academic_intent == "PROGRAMS_LIST_GRAD":
-        return "List every graduate program offered by the TMU Faculty of Arts. Include each program name exactly if available."
-    if academic_intent == "DEPARTMENTS_LIST":
-        return "List the departments in the TMU Faculty of Arts."
-    if academic_intent == "MINOR_CERTIFICATE":
-        return "How do TMU students declare a minor? Include Application to Graduate and MyServiceHub details if available."
-    if academic_intent == "COURSE_ENROLMENT":
+    if _asks_for_undergraduate_programs(normalized):
+        if _asks_for_program_count(normalized):
+            return "How many undergraduate programs are offered by the TMU Faculty of Arts?"
         return (
-            "How do TMU students enrol in classes? Include new vs continuing student enrolment, course intentions, "
-            "priority enrolment, and MyServiceHub if available."
+            "List every undergraduate program offered by the TMU Faculty of Arts. "
+            "Include each program name exactly as shown on the Faculty of Arts undergraduate programs page."
         )
-    if academic_intent == "COURSE_WAITLIST":
-        return "What should TMU students do if a class is full? Include wait list details if available."
-    if academic_intent == "COURSE_MANAGEMENT":
-        return "How do TMU students add, drop, swap, or withdraw from courses in MyServiceHub?"
-    if academic_intent == "PROGRAM_CHANGE":
-        return "How can a TMU student switch programs or change majors/plans? Include internal change or transfer guidance if available."
-    if academic_intent == "ADVISOR_CONTACT":
-        if program:
-            return (
-                f"Who should a student in the {program} program at TMU Faculty of Arts contact for academic advising? "
-                f"Include Faculty academic advising and program/department contacts if available."
-            )
-        return "Who should a TMU Faculty of Arts student contact for academic advising? Include Faculty academic advising and department contacts if available."
-    if academic_intent == "IMPORTANT_DATES":
-        return "What important TMU academic dates or course drop dates should students know this semester?"
-    if academic_intent == "ACADEMIC_CONSIDERATION":
-        return "What is a TMU academic consideration request and how do students submit one?"
-    if academic_intent == "ACADEMIC_STANDING":
-        return "What happens if a TMU student fails a course or is on academic probation or academic standing?"
-    if academic_intent == "STUDENT_SUPPORT":
-        if any(term in normalized for term in ("mental health", "counselling", "counseling")):
-            return "What official mental health or counselling supports are available to TMU students?"
-        return "What official TMU student support resources are available for students?"
-    if academic_intent == "ADMISSIONS":
-        return q
-    if academic_intent == "GENERAL_STUDENT_INFO":
-        if program and _is_referential_program_followup(q):
-            return _resolve_program_referent(q, program)
-        return q
+    if _asks_for_graduate_programs(normalized):
+        if _asks_for_program_count(normalized):
+            return "How many graduate programs are offered by the TMU Faculty of Arts?"
+        return (
+            "List every graduate program offered by the TMU Faculty of Arts. "
+            "Include each program name exactly if available."
+        )
 
-    if program and _is_referential_program_followup(q):
-        return _resolve_program_referent(q, program)
+    if state.program and _can_apply_program_context(state) and _is_referential_program_followup(q):
+        return _resolve_program_referent(q, state.program)
+
     return q
 
 
@@ -564,19 +502,45 @@ def _rewrite_follow_up_with_context(question: str, state: SessionState) -> str:
     q = question.strip()
     if not q:
         return q
+
     if state.program and _can_apply_program_context(state) and _is_referential_program_followup(q):
         q = _resolve_program_referent(q, state.program)
+
     if state.last_effective_question:
         return f"{q}. Prior topic: {state.last_effective_question}"
     return q
 
 
 def _program_for_supported_turn(question: str, state: SessionState) -> Optional[str]:
-    if not state.program or not _can_apply_program_context(state):
+    if not state.program:
+        return None
+    if not _can_apply_program_context(state):
         return None
     if _is_possessive_program_request(question):
         return state.program if _program_context_age(state) <= 3 else None
     return state.program
+
+
+def _asks_for_course_planning(question: str) -> bool:
+    q = _normalize(question)
+    patterns = (
+        r"\bwhat courses should i pick\b",
+        r"\bwhat classes should i pick\b",
+        r"\bwhat courses should i take\b",
+        r"\bwhat classes should i take\b",
+        r"\bwhat should i take\b",
+        r"\bpick classes\b",
+        r"\bpick courses\b",
+        r"\bfirst year courses\b",
+        r"\bsecond year courses\b",
+        r"\bthird year courses\b",
+        r"\bfourth year courses\b",
+        r"\bfirst year classes\b",
+        r"\bsecond year classes\b",
+        r"\bthird year classes\b",
+        r"\bfourth year classes\b",
+    )
+    return any(re.search(p, q) for p in patterns)
 
 
 def _asks_for_required_classes(question: str) -> bool:
@@ -591,21 +555,30 @@ def _asks_for_required_classes(question: str) -> bool:
         r"\bwhat courses do i need\b",
         r"\blist all the required courses\b",
         r"\blist the required courses\b",
+        r"\blist all the courses\b",
         r"\bcurriculum\b",
     )
     return any(re.search(p, q) for p in patterns)
 
 
 def _asks_for_undergraduate_programs(q: str) -> bool:
-    return "undergraduate program" in q or "undergraduate programs" in q or bool(re.search(r"\blist all undergraduate programs\b", q))
+    return (
+        "undergraduate program" in q
+        or "undergraduate programs" in q
+        or bool(re.search(r"\blist all undergraduate programs\b", q))
+    )
 
 
 def _asks_for_graduate_programs(q: str) -> bool:
-    return "graduate program" in q or "graduate programs" in q or bool(re.search(r"\blist all graduate programs\b", q))
+    return (
+        "graduate program" in q
+        or "graduate programs" in q
+        or bool(re.search(r"\blist all graduate programs\b", q))
+    )
 
 
-def _asks_about_departments(q: str) -> bool:
-    return "department" in q or "departments" in q
+def _asks_for_program_count(q: str) -> bool:
+    return bool(re.search(r"\bhow many\b", q)) or "number of" in q or "count of" in q
 
 
 def _asks_about_coop(q: str) -> bool:
@@ -617,63 +590,69 @@ def _asks_about_minor_or_certificate(q: str) -> bool:
 
 
 def _asks_about_admissions(q: str) -> bool:
-    return any(token in q for token in ("apply", "application", "admission", "admissions", "requirements to apply"))
+    return any(token in q for token in ("apply", "application", "admission", "admissions", "transfer", "requirements to apply"))
 
 
 def _asks_about_student_support(q: str) -> bool:
-    return any(token in q for token in ("mental health", "counselling", "counseling", "student support", "support services", "academic support", "wellbeing", "well being"))
-
-
-def _asks_about_course_enrolment(q: str) -> bool:
-    return any(token in q for token in ("enroll in classes", "enrol in classes", "enroll in courses", "enrol in courses", "course intentions", "priority enrollment", "priority enrolment"))
-
-
-def _asks_about_waitlist_or_full_class(q: str) -> bool:
-    return "wait list" in q or "waitlist" in q or "class is full" in q or "course is full" in q
-
-
-def _asks_about_course_management(q: str) -> bool:
-    return any(token in q for token in ("add, drop", "add drop", "swap courses", "swap a course", "drop a course", "withdraw from a course"))
-
-
-def _asks_about_program_change(q: str) -> bool:
-    return any(token in q for token in ("switch my program", "switch programs", "change my program", "change programs", "switch my major", "change my major"))
-
-
-def _asks_about_advisor(q: str) -> bool:
-    return any(token in q for token in ("who is my advisor", "who's my advisor", "who is my adviser", "advisor", "adviser", "advising"))
-
-
-def _asks_about_course_planning(q: str) -> bool:
-    return any(token in q for token in ("what courses should i pick", "what classes should i pick", "what courses should i take", "what classes should i take", "choose my electives", "pick my electives"))
-
-
-def _asks_about_graduation_progress(q: str) -> bool:
-    return any(token in q for token in ("on track to graduate", "graduate in 4 years", "track to graduate", "advisement report", "degree progress"))
-
-
-def _asks_about_important_dates(q: str) -> bool:
-    return "important dates" in q or "significant dates" in q or "deadline" in q or "drop dates" in q
-
-
-def _asks_about_academic_consideration(q: str) -> bool:
-    return "academic consideration" in q or "missed a test" in q or "missed an exam" in q
-
-
-def _asks_about_academic_standing(q: str) -> bool:
-    return any(token in q for token in ("fail a course", "failed a course", "what happens if i fail", "if i fail a class", "academic probation", "academic standing", "grades and standings"))
+    return any(
+        token in q
+        for token in (
+            "mental health",
+            "counselling",
+            "counseling",
+            "probation",
+            "advisor",
+            "advising",
+            "academic support",
+            "student support",
+            "support services",
+        )
+    )
 
 
 def _asks_for_program_overview(q: str) -> bool:
-    return any(q.startswith(prefix) for prefix in ("tell me about", "what is", "what about", "how about", "give me an overview of", "overview of"))
+    return any(
+        q.startswith(prefix)
+        for prefix in (
+            "tell me about",
+            "what is",
+            "what about",
+            "how about",
+            "give me an overview of",
+            "overview of",
+        )
+    )
 
 
 def _is_program_scoped(q: str) -> bool:
-    return any(token in q for token in ("course", "courses", "class", "classes", "elective", "electives", "required", "requirement", "requirements", "co op", "coop", "internship", "first year", "second year", "third year", "fourth year", "curriculum", "credit", "credits"))
+    return any(
+        token in q
+        for token in (
+            "course",
+            "courses",
+            "class",
+            "classes",
+            "elective",
+            "electives",
+            "required",
+            "requirement",
+            "requirements",
+            "co op",
+            "coop",
+            "internship",
+            "first year",
+            "second year",
+            "third year",
+            "fourth year",
+            "curriculum",
+            "credit",
+            "credits",
+        )
+    )
 
 
 def _is_supported_follow_up(q: str) -> bool:
-    if any(q.startswith(marker) for marker in ("what if", "what about", "how about", "but can you", "and what about", "and can you", "what about for", "and for")):
+    if any(q.startswith(marker) for marker in ("what if", "what about", "how about", "but can you", "and what about", "and can you")):
         return True
     return bool(re.search(r"\b(it|that|those|them|there|this|these)\b", q))
 
@@ -695,7 +674,15 @@ def _is_greeting(q: str) -> bool:
 
 
 def _is_acknowledgement(q: str) -> bool:
-    patterns = (r"\bthank(s| you)?\b", r"\bok(ay)? thanks\b", r"\bgot it\b", r"\bperfect\b", r"\bawesome\b", r"\bsounds good\b", r"\bappreciate it\b")
+    patterns = (
+        r"\bthank(s| you)?\b",
+        r"\bok(ay)? thanks\b",
+        r"\bgot it\b",
+        r"\bperfect\b",
+        r"\bawesome\b",
+        r"\bsounds good\b",
+        r"\bappreciate it\b",
+    )
     return any(re.search(p, q) for p in patterns)
 
 
@@ -704,66 +691,68 @@ def _is_goodbye(q: str) -> bool:
 
 
 def _is_identity_question(q: str) -> bool:
-    patterns = (r"\bare you (a )?(real )?bot\b", r"\bare you human\b", r"\bwho are you\b", r"\bwhat are you\b")
+    patterns = (
+        r"\bare you (a )?(real )?bot\b",
+        r"\bare you human\b",
+        r"\bwho are you\b",
+        r"\bwhat are you\b",
+    )
     return any(re.search(p, q) for p in patterns)
 
 
 def _is_capability_question(q: str) -> bool:
-    patterns = (r"\bwhat do you do\b", r"\bwhat can you do\b", r"\bhow can you help\b", r"\bwhat do you help with\b")
+    patterns = (
+        r"\bwhat do you do\b",
+        r"\bwhat can you do\b",
+        r"\bhow can you help\b",
+        r"\bwhat do you help with\b",
+    )
     return any(re.search(p, q) for p in patterns)
 
 
 def _is_confusion(q: str) -> bool:
-    patterns = (r"\bi do not know\b", r"\bi dont know\b", r"\bidk\b", r"\buh+\b", r"\bum+\b", r"\bumm+\b", r"\buhh+\b", r"\bhuh\b")
+    patterns = (
+        r"\bi do not know\b",
+        r"\bi dont know\b",
+        r"\bidk\b",
+        r"\buh+\b",
+        r"\bum+\b",
+        r"\bumm+\b",
+        r"\buhh+\b",
+        r"\bhuh\b",
+    )
     if q in {"?", "what", "huh", "uh", "umm", "uhhh", "uhhhhmmm"}:
         return True
     return len(q.split()) <= 4 and any(re.search(p, q) for p in patterns)
 
 
 def _is_emotional_reaction(raw_question: str, q: str) -> bool:
-    patterns = (r"\bohh?\b", r"\bthat sucks\b", r"\bthat is disappointing\b", r"\bokay sad\b")
+    patterns = (
+        r"\bohh?\b",
+        r"\bthat sucks\b",
+        r"\bthat is disappointing\b",
+        r"\bokay sad\b",
+    )
     return ":(" in raw_question or (len(q.split()) <= 5 and any(re.search(p, q) for p in patterns))
 
 
 def _is_program_declaration(question: str) -> bool:
     q = _normalize(question)
-    patterns = (r"\b(i am|i m|im|i am in|i m in|im in)\b", r"\bmy major is\b", r"\bmy program is\b", r"\bbut i am in\b", r"\bbut i m in\b", r"\bbut im in\b", r"\bactually\b", r"\bno\b")
-    return any(re.search(p, q) for p in patterns) or bool(match_program(question) and len(q.split()) <= 6)
-
-
-def _is_probably_on_domain_question(question: str, state: SessionState) -> bool:
-    q = _normalize(question)
-    if state.program and _is_supported_follow_up(q):
-        return True
-    domain_terms = (
-        "tmu", "toronto metropolitan", "faculty of arts", "program", "major", "minor", "course", "courses", "class",
-        "classes", "semester", "elective", "enroll", "enrol", "waitlist", "wait list", "advisor", "advising", "myservicehub",
-        "curriculum", "requirements", "credits", "co op", "coop", "department", "departments", "graduate", "undergraduate",
-        "academic", "probation", "consideration", "graduat", "support", "application", "admission", "admissions",
+    patterns = (
+        r"\b(i am|i m|im|i am in|i m in|im in)\b",
+        r"\bmy major is\b",
+        r"\bmy program is\b",
+        r"\bbut i am in\b",
+        r"\bbut i m in\b",
+        r"\bbut im in\b",
+        r"\bactually\b",
+        r"\bno\b",
     )
-    return any(term in q for term in domain_terms)
-
-
-def _match_study_year(question: str) -> Optional[str]:
-    q = _normalize(question)
-    patterns = {
-        "first year": r"\b(first year|1st year|year 1|year one)\b",
-        "second year": r"\b(second year|2nd year|year 2|year two)\b",
-        "third year": r"\b(third year|3rd year|year 3|year three)\b",
-        "fourth year": r"\b(fourth year|4th year|year 4|year four)\b",
-    }
-    for label, pattern in patterns.items():
-        if re.search(pattern, q):
-            return label
-    return None
+    return any(re.search(p, q) for p in patterns) or bool(match_program(question) and len(q.split()) <= 6)
 
 
 def _can_apply_program_context(state: SessionState) -> bool:
     return bool(state.program) and _program_context_age(state) <= _PROGRAM_CONTEXT_MAX_AGE
-
-
-def _can_apply_year_context(state: SessionState) -> bool:
-    return bool(state.study_year) and _year_context_age(state) <= _YEAR_CONTEXT_MAX_AGE
 
 
 def _program_context_age(state: SessionState) -> int:
@@ -771,13 +760,6 @@ def _program_context_age(state: SessionState) -> int:
     if isinstance(last_program_turn, int):
         return max(0, state.turn_count - last_program_turn)
     return _PROGRAM_CONTEXT_MAX_AGE + 1
-
-
-def _year_context_age(state: SessionState) -> int:
-    last_year_turn = (state.metadata or {}).get("last_year_turn")
-    if isinstance(last_year_turn, int):
-        return max(0, state.turn_count - last_year_turn)
-    return _YEAR_CONTEXT_MAX_AGE + 1
 
 
 def _remember_program(state: SessionState, program: str) -> None:
@@ -792,13 +774,47 @@ def _remember_study_year(state: SessionState, study_year: str) -> None:
     state.metadata["last_year_turn"] = state.turn_count
 
 
+def _year_context_age(state: SessionState) -> int:
+    last_year_turn = (state.metadata or {}).get("last_year_turn")
+    if isinstance(last_year_turn, int):
+        return max(0, state.turn_count - last_year_turn)
+    return _YEAR_CONTEXT_MAX_AGE + 1
+
+
+def _can_apply_year_context(state: SessionState) -> bool:
+    return bool(state.study_year) and _year_context_age(state) <= _YEAR_CONTEXT_MAX_AGE
+
+
+def _year_for_supported_turn(question: str, state: SessionState) -> Optional[str]:
+    explicit_year = _extract_study_year(question)
+    if explicit_year:
+        return explicit_year
+    if _can_apply_year_context(state):
+        return state.study_year
+    return None
+
+
+def _extract_study_year(question: str) -> Optional[str]:
+    q = _normalize(question)
+    mapping = {
+        "first year": (r"\b(first year|1st year|year 1)\b",),
+        "second year": (r"\b(second year|2nd year|year 2)\b",),
+        "third year": (r"\b(third year|3rd year|year 3)\b",),
+        "fourth year": (r"\b(fourth year|4th year|year 4)\b",),
+    }
+    for label, patterns in mapping.items():
+        if any(re.search(p, q) for p in patterns):
+            return label
+    return None
+
+
 def _is_possessive_program_request(question: str) -> bool:
     q = _normalize(question)
     return any(phrase in q for phrase in ("my major", "my program"))
 
 
 def _resume_program_intent(state: SessionState) -> Optional[str]:
-    if state.last_intent in (_PROGRAM_REQUIRED_INTENTS | _PROGRAM_AND_YEAR_HELPFUL_INTENTS) and _can_apply_program_context(state):
+    if state.last_intent in _PROGRAM_REQUIRED_INTENTS and _can_apply_program_context(state):
         return state.last_intent
     return None
 

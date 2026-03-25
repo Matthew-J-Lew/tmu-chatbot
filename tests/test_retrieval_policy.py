@@ -61,3 +61,24 @@ def test_academic_consideration_policy_is_selected():
 
     assert policy.label == "ACADEMIC_CONSIDERATION"
     assert any("academic-consideration" in frag for frag in policy.preferred_urls)
+
+
+def test_one_shot_course_planning_prefers_program_calendar_policy():
+    raw = "What courses should I pick for Criminology first year?"
+    effective = "What courses should a first year student in the Criminology program take in TMU Faculty of Arts? Use the undergraduate calendar curriculum tables, first-year requirements, Program Overview/Curriculum Information, Full-Time, Four-Year Program, Full-Time, Five-Year Co-op Program, and Table I/II pages when relevant."
+    policy = choose_retrieval_policy(raw, effective)
+
+    assert policy.label == "COURSE_PLANNING_CALENDAR"
+    assert policy.program_slug == "criminology"
+    assert any("/calendar/2025-2026/programs/arts/criminology" in frag for frag in policy.preferred_urls)
+    assert any("table i" in term.lower() for term in policy.preferred_section_terms)
+
+
+def test_program_requirements_prefers_specific_calendar_program_policy():
+    raw = "Criminology BA"
+    effective = "What are the required courses, first-year requirements, degree requirements, curriculum groups, liberal studies, and electives for the Criminology program in TMU Faculty of Arts? Use the undergraduate calendar curriculum tables, Program Overview/Curriculum Information, Full-Time, Four-Year Program, Full-Time, Five-Year Co-op Program, and Table I/II pages when relevant."
+    policy = choose_retrieval_policy(raw, effective)
+
+    assert policy.label == "PROGRAM_REQUIREMENTS_CALENDAR"
+    assert policy.program_slug == "criminology"
+    assert policy.same_source_limit == 4

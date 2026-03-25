@@ -21,7 +21,6 @@ class SessionState:
     last_effective_question: Optional[str] = None
     last_user_question: Optional[str] = None
     last_intent: Optional[str] = None
-    question_mode: Optional[str] = None
     turn_count: int = 0
     updated_at: Optional[str] = None
     metadata: Dict[str, Any] = field(default_factory=dict)

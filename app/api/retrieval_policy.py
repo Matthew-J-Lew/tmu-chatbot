@@ -4,6 +4,26 @@ from dataclasses import dataclass
 import re
 from typing import Optional, Tuple
 
+from app.api.program_registry import match_program
+
+
+_PROGRAM_SLUGS = {
+    "Arts and Contemporary Studies": "arts-contemporary-studies",
+    "Criminology": "criminology",
+    "Economics and Finance": "economics_finance",
+    "English": "english",
+    "Environment and Urban Sustainability": "environment_urban_sustainability",
+    "Geographic Analysis": "geographic_analysis",
+    "History": "history",
+    "Language and Intercultural Relations": "language_intercultural_relations",
+    "Philosophy": "philosophy",
+    "Politics and Governance": "politics_governance",
+    "Psychology": "psychology",
+    "Public Administration and Governance": "public_admin",
+    "Sociology": "sociology",
+    "Undeclared Arts": "undeclared_arts",
+}
+
 
 @dataclass(frozen=True)
 class RetrievalPolicy:
@@ -11,11 +31,15 @@ class RetrievalPolicy:
     retrieval_query: Optional[str] = None
     preferred_urls: Tuple[str, ...] = ()
     discouraged_urls: Tuple[str, ...] = ()
+    preferred_section_terms: Tuple[str, ...] = ()
+    discouraged_section_terms: Tuple[str, ...] = ()
     same_source_limit: int = 1
     canonical_fallback: bool = False
+    program_slug: Optional[str] = None
 
     def cache_token(self) -> str:
-        return self.label
+        slug_token = f":{self.program_slug}" if self.program_slug else ""
+        return f"{self.label}{slug_token}"
 
 
 _DEFAULT = RetrievalPolicy()
@@ -38,6 +62,33 @@ def _asks_for_list(q: str) -> bool:
 
 def _asks_for_count(q: str) -> bool:
     return "how many" in q or "number of" in q or "count of" in q
+
+
+def _extract_program_slug(raw_question: str, effective_question: str) -> Optional[str]:
+    for candidate in (effective_question, raw_question):
+        program = match_program(candidate)
+        if program:
+            return _PROGRAM_SLUGS.get(program)
+    return None
+
+
+def _extract_study_year(raw_question: str, effective_question: str) -> Optional[str]:
+    combined = _normalize(f"{raw_question} {effective_question}")
+    mapping = {
+        "first year": (r"\b(first year|1st year|year 1)\b",),
+        "second year": (r"\b(second year|2nd year|year 2)\b",),
+        "third year": (r"\b(third year|3rd year|year 3)\b",),
+        "fourth year": (r"\b(fourth year|4th year|year 4)\b",),
+    }
+    for label, patterns in mapping.items():
+        if any(re.search(p, combined) for p in patterns):
+            return label
+    return None
+
+
+def _mentions_coop(raw_question: str, effective_question: str) -> bool:
+    combined = _normalize(f"{raw_question} {effective_question}")
+    return any(token in combined for token in ("co op", "coop", "co operative", "five year co op", "five year coop"))
 
 
 def _is_arts_undergrad_program_list(q: str) -> bool:
@@ -98,7 +149,18 @@ def _is_advisor_contact_question(q: str) -> bool:
 def _is_course_planning_question(q: str) -> bool:
     return any(phrase in q for phrase in (
         "what courses should i pick", "what classes should i pick", "what courses should i take",
-        "what classes should i take", "plan my courses", "choose my electives", "pick my electives",
+        "what classes should i take", "what should i take", "plan my courses", "choose my electives",
+        "pick my electives", "pick classes", "pick courses", "first year courses", "second year courses",
+        "third year courses", "fourth year courses", "first year classes", "second year classes",
+        "third year classes", "fourth year classes",
+    ))
+
+
+def _is_program_requirements_question(q: str) -> bool:
+    return any(phrase in q for phrase in (
+        "required classes", "required courses", "degree requirements", "course requirements",
+        "what courses do i need", "what classes do i need", "curriculum", "list the required courses",
+        "list all the required courses", "what are my required courses", "what are the required courses",
     ))
 
 
@@ -131,10 +193,54 @@ def _is_student_support_question(q: str) -> bool:
     ))
 
 
+def _calendar_policy(label: str, effective_question: str, slug: str, *, prefer_coop: bool = False) -> RetrievalPolicy:
+    base_path_2025 = f"/calendar/2025-2026/programs/arts/{slug}"
+    base_path_2026 = f"/calendar/2026-2027/programs/arts/{slug}"
+    preferred_sections = [
+        "table i",
+        "table ii",
+        "required group",
+        "core elective",
+        "full-time, four-year program",
+        "program overview/curriculum information",
+        "liberal studies",
+        "open electives",
+    ]
+    if prefer_coop:
+        preferred_sections.insert(4, "full-time, five-year co-op program")
+    discouraged_sections = () if prefer_coop else ("full-time, five-year co-op program",)
+    return RetrievalPolicy(
+        label=label,
+        retrieval_query=effective_question,
+        preferred_urls=(
+            base_path_2025,
+            base_path_2026,
+            f"{base_path_2025}/table_i",
+            f"{base_path_2025}/table_ii",
+            f"{base_path_2026}/table_i",
+            f"{base_path_2026}/table_ii",
+        ),
+        discouraged_urls=(
+            "/myservicehub-support/students/academics/advisement-report",
+            "/arts/undergraduate/academic-support/academic-advising",
+            "/arts/undergraduate/academic-support/",
+            "/admissions/undergraduate/",
+            "/student-financial-assistance/",
+            "/career-coop-student-success/",
+        ),
+        preferred_section_terms=tuple(preferred_sections),
+        discouraged_section_terms=discouraged_sections,
+        same_source_limit=4,
+        program_slug=slug,
+    )
+
+
 def choose_retrieval_policy(raw_question: str, effective_question: str) -> RetrievalPolicy:
     raw = _normalize(raw_question)
     eff = _normalize(effective_question)
     combined = f"{raw} || {eff}"
+    program_slug = _extract_program_slug(raw_question, effective_question)
+    study_year = _extract_study_year(raw_question, effective_question)
 
     if _is_arts_undergrad_program_list(combined):
         return RetrievalPolicy(
@@ -219,6 +325,12 @@ def choose_retrieval_policy(raw_question: str, effective_question: str) -> Retri
             discouraged_urls=("/student-financial-assistance/",),
             same_source_limit=2,
         )
+
+    if _is_course_planning_question(combined) and program_slug and study_year:
+        return _calendar_policy("COURSE_PLANNING_CALENDAR", effective_question, program_slug, prefer_coop=_mentions_coop(raw_question, effective_question))
+
+    if _is_program_requirements_question(combined) and program_slug:
+        return _calendar_policy("PROGRAM_REQUIREMENTS_CALENDAR", effective_question, program_slug, prefer_coop=_mentions_coop(raw_question, effective_question))
 
     if _is_course_planning_question(combined):
         return RetrievalPolicy(

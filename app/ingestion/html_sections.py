@@ -3,9 +3,11 @@ from __future__ import annotations
 import re
 import urllib.parse
 from dataclasses import dataclass
-from typing import Iterable, List, Optional
+from typing import Iterable, List, Optional, Tuple
 
 from bs4 import BeautifulSoup, Tag
+
+from app.api.program_registry import match_program
 
 
 @dataclass
@@ -31,7 +33,6 @@ NOISY_SELECTORS = [
     "form",
     "header .global-header",
 ]
-
 NOISY_KEYWORDS = {
     "cookie",
     "banner",
@@ -45,19 +46,19 @@ NOISY_KEYWORDS = {
     "directory maps",
     "follow us",
 }
-
 BUTTON_PATTERNS = [
     re.compile(r"^Explore program requirements for\b", re.I),
     re.compile(r"^Visit the Department of\b", re.I),
     re.compile(r"^How to apply$", re.I),
     re.compile(r"^Experience TMU$", re.I),
 ]
-
 IMAGE_ALT_PATTERNS = [
     re.compile(r"^(?:A|An|The|Two|Three|Young|Students?)\b.+", re.I),
 ]
-
-PROGRAM_LIST_TITLE_PAT = re.compile(r"-\s*(?:BA|BFA|BSc|BEng|BM|BComm|Honours?)\b", re.I)
+_CALENDAR_ARTS_RE = re.compile(
+    r"/calendar/(?P<year>\d{4}-\d{4})/programs/arts/(?P<slug>[^/]+)(?:/(?P<table>table_i|table_ii))?/?$",
+    re.I,
+)
 
 
 def _norm_ws(text: str) -> str:
@@ -155,55 +156,22 @@ def _context_heading_for(node: Tag, default: str) -> Optional[str]:
     return default
 
 
-def _accordion_context_heading(container: Tag, default: str) -> str:
-    for prev in container.find_all_previous(["h2", "h3", "h1"], limit=8):
-        txt = _norm_ws(prev.get_text(" ", strip=True))
-        if not txt:
-            continue
-        if txt == default:
-            continue
-        return txt
-    return _context_heading_for(container, default) or default
-
-
-def _previous_summary_context(container: Tag) -> List[str]:
-    snippets: List[str] = []
-    for prev in container.find_all_previous(["p", "h1", "h2", "h3", "h4"], limit=12):
-        txt = _clean_text(_text(prev))
-        if not txt:
-            continue
-        if prev.name in {"h1", "h2", "h3", "h4"}:
-            snippets.append(txt)
-            break
-        if len(txt) <= 260:
-            snippets.append(txt)
-        if len(snippets) >= 3:
-            break
-    snippets.reverse()
-    deduped: List[str] = []
-    seen = set()
-    for txt in snippets:
-        key = txt.lower()
-        if key in seen:
-            continue
-        seen.add(key)
-        deduped.append(txt)
-    return deduped
-
-
-def _looks_like_program_list_title(title: str) -> bool:
-    return bool(PROGRAM_LIST_TITLE_PAT.search(title)) or title.endswith("Arts")
-
-
 def _summary_text_for_container(container: Tag, context_heading: str) -> str:
     parts: List[str] = []
-    prev_text_bits = _previous_summary_context(container)
+    prev_text_bits: List[str] = []
+    for sib in container.previous_siblings:
+        if not isinstance(sib, Tag):
+            continue
+        if sib.name in {"h1", "h2", "h3", "h4"}:
+            break
+        txt = _text(sib)
+        if txt and txt != context_heading:
+            prev_text_bits.append(txt)
+    prev_text_bits.reverse()
     if prev_text_bits:
-        parts.extend(prev_text_bits)
-    elif context_heading:
-        parts.append(context_heading)
+        parts.extend(prev_text_bits[-2:])
 
-    titles: List[str] = []
+    titles = []
     for idx, panel in enumerate(container.select(":scope > .panel.panel-default"), 1):
         title_el = panel.select_one(".panel-heading .panel-title a") or panel.select_one(".panel-heading .panel-title")
         if not title_el:
@@ -211,16 +179,15 @@ def _summary_text_for_container(container: Tag, context_heading: str) -> str:
         title = _norm_ws(title_el.get_text(" ", strip=True))
         if title:
             titles.append(f"{idx}. {title}")
-
     if titles:
+        if context_heading and context_heading.lower() not in {"programs", "program list"}:
+            parts.append(context_heading)
         parts.extend(titles)
-
     return _clean_text("\n".join(parts))
 
 
 def _extract_rich_text_blocks(panel_body: Tag) -> List[str]:
     texts: List[str] = []
-
     for rich in panel_body.select(".c1 .resText .res-text, .c1 .resText.parbase.section .res-text"):
         txt = _clean_text(_text(rich))
         if txt:
@@ -265,11 +232,10 @@ def _extract_rich_text_blocks(panel_body: Tag) -> List[str]:
 def _extract_accordion_blocks(main: Tag, page_title: str) -> List[SectionBlock]:
     blocks: List[SectionBlock] = []
     for container in list(main.select(".panel-group.accordion")):
-        context_heading = _accordion_context_heading(container, page_title)
+        context_heading = _context_heading_for(container, page_title) or page_title
         summary_text = _summary_text_for_container(container, context_heading)
         if summary_text:
             blocks.append(SectionBlock(section=context_heading, text=summary_text, kind="accordion_summary"))
-
         for panel in container.select(":scope > .panel.panel-default"):
             title_el = panel.select_one(".panel-heading .panel-title a") or panel.select_one(".panel-heading .panel-title")
             if not title_el:
@@ -319,6 +285,54 @@ def _extract_generic_sections(main: Tag, page_title: str) -> List[SectionBlock]:
     return blocks
 
 
+def _clean_calendar_title(title: str) -> str:
+    cleaned = _norm_ws(title)
+    cleaned = re.sub(r"\s*-\s*Toronto Metropolitan University.*$", "", cleaned, flags=re.I)
+    cleaned = re.sub(r"\s*-\s*TMU.*$", "", cleaned, flags=re.I)
+    cleaned = re.sub(r"\s*-\s*Undergraduate Calendar.*$", "", cleaned, flags=re.I)
+    return cleaned.strip(" -")
+
+
+def _program_name_from_slug_or_title(slug: str, clean_title: str) -> str:
+    for candidate in (clean_title, slug.replace("_", " ").replace("-", " ")):
+        matched = match_program(candidate)
+        if matched:
+            return matched
+    humanized = slug.replace("_", " ").replace("-", " ").title()
+    return humanized
+
+
+def _contextualize_calendar_block(base_url: str, title: str, section: str, text: str) -> Tuple[str, str]:
+    match = _CALENDAR_ARTS_RE.search(urllib.parse.urlparse(base_url).path)
+    if not match:
+        return section, text
+
+    year = match.group("year")
+    slug = match.group("slug") or ""
+    table = match.group("table")
+    clean_title = _clean_calendar_title(title)
+    program_name = _program_name_from_slug_or_title(slug, clean_title)
+    page_context = clean_title or program_name
+    section_clean = _norm_ws(section or "")
+
+    if table:
+        contextual_section = page_context if not section_clean or section_clean.lower() == page_context.lower() else f"{page_context} — {section_clean}"
+    else:
+        if not section_clean:
+            contextual_section = page_context
+        elif section_clean.lower().startswith(program_name.lower()):
+            contextual_section = section_clean
+        elif section_clean.lower() == page_context.lower():
+            contextual_section = page_context
+        else:
+            contextual_section = f"{program_name} — {section_clean}"
+
+    header_lines = [f"Academic year: {year}", f"Program: {program_name}"]
+    if contextual_section and contextual_section.lower() not in text.lower():
+        header_lines.append(f"Section context: {contextual_section}")
+    contextual_text = _norm_ws("\n".join(header_lines) + "\n\n" + text)
+    return contextual_section, contextual_text
+
 
 def flatten_document_text(doc: HtmlDocument) -> str:
     return "\n\n".join(block.text for block in doc.blocks if block.text).strip()
@@ -331,16 +345,15 @@ def extract_html_document(html: str, base_url: str) -> HtmlDocument:
     main = soup.find("main") or soup.body or soup
 
     blocks: List[SectionBlock] = []
-    accordion_blocks = _extract_accordion_blocks(main, title)
-    generic_blocks = _extract_generic_sections(main, title)
-    blocks.extend(accordion_blocks)
-    blocks.extend(generic_blocks)
+    blocks.extend(_extract_accordion_blocks(main, title))
+    blocks.extend(_extract_generic_sections(main, title))
 
     cleaned_blocks: List[SectionBlock] = []
     seen_pairs = set()
     for block in blocks:
-        sec = _norm_ws(block.section)[:240] or title
-        txt = _clean_text(block.text)
+        section, block_text = _contextualize_calendar_block(base_url, title, block.section, block.text)
+        sec = _norm_ws(section)[:240] or title
+        txt = _clean_text(block_text)
         if not txt:
             continue
         if len(txt.split()) < 4:
@@ -350,5 +363,4 @@ def extract_html_document(html: str, base_url: str) -> HtmlDocument:
             continue
         seen_pairs.add(key)
         cleaned_blocks.append(SectionBlock(section=sec, text=txt, kind=block.kind))
-
     return HtmlDocument(title=title, blocks=cleaned_blocks)

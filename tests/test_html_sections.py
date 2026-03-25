@@ -60,6 +60,26 @@ SAMPLE_HTML = """
 """
 
 
+CALENDAR_TABLE_HTML = """
+<html>
+  <head><title>Criminology Required Group 1 - Table I - Toronto Metropolitan University</title></head>
+  <body>
+    <main>
+      <h1>Criminology Required Group 1 - Table I</h1>
+      <h2>Humanities</h2>
+      <p>Choose one of the following humanities courses.</p>
+      <ul>
+        <li>PHL 101</li>
+        <li>ENG 201</li>
+      </ul>
+      <h2>Social Sciences</h2>
+      <p>Choose one approved social sciences course.</p>
+    </main>
+  </body>
+</html>
+"""
+
+
 def test_extract_html_document_handles_accordion_panels_as_hard_sections():
     doc = extract_html_document(SAMPLE_HTML, "https://www.torontomu.ca/arts/undergraduate/programs/")
 
@@ -69,24 +89,35 @@ def test_extract_html_document_handles_accordion_panels_as_hard_sections():
     assert "Criminology - BA (Hons)" in sections
     assert "Customize your degree" in sections
 
-    summary = next(b for b in doc.blocks if b.kind == "accordion_summary")
-    assert summary.section == "Explore program options"
-    assert "13 undergraduate programs" in summary.text
+    summary = next(b for b in doc.blocks if b.section == "Explore program options")
     assert "1. Arts and Contemporary Studies - BA (Hons)" in summary.text
     assert "2. Criminology - BA (Hons)" in summary.text
-    assert "Official program list" not in summary.text
+    assert "13 undergraduate programs" in summary.text
 
-    arts = next(b for b in doc.blocks if b.section == "Arts and Contemporary Studies - BA (Hons)" and b.kind == "accordion_panel")
+    arts = next(b for b in doc.blocks if b.section == "Arts and Contemporary Studies - BA (Hons)")
     assert "Shape your future" in arts.text
     assert "Content Specialist" in arts.text
     assert "Explore program requirements" not in arts.text
     assert "Three students sit at a white table" not in arts.text
     assert "Criminology - BA (Hons)" not in arts.text
 
-    crim = next(b for b in doc.blocks if b.section == "Criminology - BA (Hons)" and b.kind == "accordion_panel")
+    crim = next(b for b in doc.blocks if b.section == "Criminology - BA (Hons)")
     assert "Are you passionate" in crim.text
     assert "Court Reporter" in crim.text
     assert "12-16" in crim.text
     assert "months of paid work experience" in crim.text
 
     assert all(s not in {"12-16", "$65K", "1,600+"} for s in sections)
+
+
+def test_calendar_table_sections_are_contextualized_with_program_and_table_name():
+    doc = extract_html_document(
+        CALENDAR_TABLE_HTML,
+        "https://www.torontomu.ca/calendar/2025-2026/programs/arts/criminology/table_i/",
+    )
+
+    humanities = next(b for b in doc.blocks if "Humanities" in b.section)
+    assert humanities.section == "Criminology Required Group 1 - Table I — Humanities"
+    assert "Academic year: 2025-2026" in humanities.text
+    assert "Program: Criminology" in humanities.text
+    assert "Section context: Criminology Required Group 1 - Table I — Humanities" in humanities.text

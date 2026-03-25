@@ -299,6 +299,11 @@ def model_debug_info() -> ModelDebug:
     return ModelDebug(provider=provider, name=name)
 
 
+def _canonical_source_key(url: str, section: Optional[str]) -> str:
+    # User-facing source lists are cleaner when deduped by page URL rather than by section.
+    return (url or '').strip().lower().rstrip('/')
+
+
 def build_messages_and_sources(
     question: str, chunks: List[Dict[str, Any]]
 ) -> tuple[List[Dict[str, str]], List[SourceItem]]:
@@ -311,6 +316,7 @@ def build_messages_and_sources(
     """
     sources: List[SourceItem] = []
     context_lines: List[str] = []
+    seen_sources: set[tuple[str, str]] = set()
 
     total_chars = 0
     for i, c in enumerate(chunks, start=1):
@@ -328,7 +334,11 @@ def build_messages_and_sources(
 
         total_chars += len(block)
         context_lines.append(block)
-        sources.append(SourceItem(id=i, url=url, title=url, section=section))
+
+        source_key = _canonical_source_key(url, section)
+        if source_key not in seen_sources:
+            seen_sources.add(source_key)
+            sources.append(SourceItem(id=len(sources) + 1, url=url, title=url, section=section))
 
     system_instructions = (
         "You are a helpful assistant for Toronto Metropolitan University's Faculty of Arts.\n"
