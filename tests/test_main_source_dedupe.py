@@ -57,7 +57,12 @@ st_mod.SentenceTransformer = DummySentenceTransformer
 st_mod.CrossEncoder = DummyCrossEncoder
 sys.modules.setdefault("sentence_transformers", st_mod)
 
-from app.api.main import build_messages_and_sources
+from app.api.main import (
+    build_messages_and_sources,
+    build_response_cache_identity,
+    build_retrieval_cache_identity,
+)
+from app.api.retrieval_policy import choose_retrieval_policy
 
 
 def test_build_messages_and_sources_dedupes_returned_sources_by_url():
@@ -85,3 +90,23 @@ def test_build_messages_and_sources_dedupes_returned_sources_by_url():
     _, sources = build_messages_and_sources("q", chunks)
     assert len(sources) == 1
     assert sources[0].section == "Program Overview/Curriculum Information"
+
+
+def test_response_cache_identity_uses_concrete_question_for_same_policy_family():
+    q1 = "How do I enroll in a class?"
+    q2 = "How do I enroll in classes?"
+    p1 = choose_retrieval_policy(q1, q1)
+    p2 = choose_retrieval_policy(q2, q2)
+
+    assert p1.label == p2.label == "COURSE_ENROLMENT"
+    assert build_response_cache_identity(q1, q1, p1) != build_response_cache_identity(q2, q2, p2)
+
+
+def test_retrieval_cache_identity_uses_concrete_question_for_same_policy_family():
+    q1 = "How do I add a class?"
+    q2 = "How do I add, drop, or swap classes?"
+    p1 = choose_retrieval_policy(q1, q1)
+    p2 = choose_retrieval_policy(q2, q2)
+
+    assert p1.label == p2.label == "COURSE_MANAGEMENT"
+    assert build_retrieval_cache_identity(q1, p1) != build_retrieval_cache_identity(q2, p2)

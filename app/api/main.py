@@ -234,6 +234,24 @@ def normalize_question(q: str) -> str:
     return q
 
 
+def build_retrieval_cache_identity(question: str, policy: Optional[RetrievalPolicy] = None) -> str:
+    cache_scope = policy.cache_token() if policy else "DEFAULT"
+    concrete_question = normalize_question(question)
+    retrieval_query = normalize_question((policy.retrieval_query or question) if policy else question)
+    return f"{cache_scope}::q={concrete_question}::rq={retrieval_query}"
+
+
+def build_response_cache_identity(
+    raw_question: str,
+    effective_question: str,
+    policy: Optional[RetrievalPolicy] = None,
+) -> str:
+    cache_scope = policy.cache_token() if policy else "DEFAULT"
+    raw_token = normalize_question(raw_question)
+    effective_token = normalize_question(effective_question)
+    return f"{cache_scope}::raw={raw_token}::eff={effective_token}"
+
+
 def sanitize_question(q: str) -> str:
     q = q.strip()
     if not q:
@@ -434,9 +452,7 @@ async def retrieve_chunks(question: str, policy: Optional[RetrievalPolicy] = Non
     pool = get_pool()
     start_retrieve = perf_counter()
 
-    cache_q = (policy.retrieval_query or question) if policy else question
-    cache_token = policy.cache_token() if policy else "DEFAULT"
-    ret_key = make_cache_key("ret", f"{cache_token}::{normalize_question(cache_q)}")
+    ret_key = make_cache_key("ret", build_retrieval_cache_identity(question, policy))
     cached_ret = await cache_get_json(ret_key)
 
     if cached_ret and "chunks" in cached_ret:
@@ -480,8 +496,7 @@ async def chat(req: ChatRequest) -> ChatResponse:
     turn = await prepare_session_turn(q, req.session_id)
     effective_q = turn.effective_question
     policy = choose_retrieval_policy(q, effective_q)
-    cache_question = policy.retrieval_query or effective_q
-    normalized_effective = normalize_question(cache_question)
+    response_cache_identity = build_response_cache_identity(q, effective_q, policy)
 
     if turn.workflow_reply:
         return ChatResponse(**workflow_payload(turn.workflow_reply, start_total))
@@ -496,13 +511,13 @@ async def chat(req: ChatRequest) -> ChatResponse:
             ],
             start_total,
         )
-        resp_key = make_cache_key("resp", f"{policy.cache_token()}::{normalized_effective}")
+        resp_key = make_cache_key("resp", response_cache_identity)
         await cache_set_json(resp_key, payload, CACHE_TTL_RESPONSE)
         return ChatResponse(**payload)
 
     # ---- Cache lookup (full response cache) ----
     start_cache = perf_counter()
-    resp_key = make_cache_key("resp", f"{policy.cache_token()}::{normalized_effective}")
+    resp_key = make_cache_key("resp", response_cache_identity)
     cached_resp = await cache_get_json(resp_key)
     cache_ms = int((perf_counter() - start_cache) * 1000)
 
@@ -691,7 +706,7 @@ async def chat_stream(req: ChatRequest):
     turn = await prepare_session_turn(q, req.session_id)
     effective_q = turn.effective_question
     policy = choose_retrieval_policy(q, effective_q)
-    normalized_effective = normalize_question(policy.retrieval_query or effective_q)
+    response_cache_identity = build_response_cache_identity(q, effective_q, policy)
 
     if turn.workflow_reply:
         async def _workflow_iter():
@@ -705,7 +720,7 @@ async def chat_stream(req: ChatRequest):
         return StreamingResponse(_canonical_iter(), media_type="text/plain")
 
     # If we already have a cached final response, stream it instantly
-    resp_key = make_cache_key("resp", f"{policy.cache_token()}::{normalized_effective}")
+    resp_key = make_cache_key("resp", response_cache_identity)
     cached_resp = await cache_get_json(resp_key)
     if cached_resp and "answer" in cached_resp:
         async def _cached_iter():

@@ -428,6 +428,35 @@ def _suppress_curriculum_support_pages(candidates: List[Dict[str, Any]], policy:
     return kept
 
 
+
+
+def _prefer_targeted_sources_for_support(candidates: List[Dict[str, Any]], policy: Optional[RetrievalPolicy]) -> List[Dict[str, Any]]:
+    if not candidates or policy is None or not policy.preferred_urls:
+        return candidates
+
+    strict_labels = {
+        "ADVISOR_CONTACT",
+        "ACADEMIC_CONSIDERATION",
+        "MISSED_ASSESSMENT",
+        "ACADEMIC_ACCOMMODATIONS",
+        "MENTAL_HEALTH_SUPPORT",
+        "STUDENT_SUPPORT",
+    }
+    if policy.label not in strict_labels:
+        return candidates
+
+    targeted: List[Dict[str, Any]] = []
+    for cand in candidates:
+        url = _canonical_url(cand.get('chunk_url') or cand.get('source_url') or '')
+        section = _section_text(cand)
+        matches_url = any(pref.lower().rstrip('/') in url for pref in policy.preferred_urls)
+        matches_section = bool(policy.preferred_section_terms) and any(term.lower() in section for term in policy.preferred_section_terms)
+        discouraged = bool(policy.discouraged_urls) and any(disc.lower().rstrip('/') in url for disc in policy.discouraged_urls)
+        if (matches_url or matches_section) and not discouraged:
+            targeted.append(cand)
+
+    return targeted if len(targeted) >= 2 else candidates
+
 def _enforce_same_source_limit(candidates: List[Dict[str, Any]], limit: int) -> List[Dict[str, Any]]:
     if limit <= 0:
         return candidates
@@ -458,6 +487,7 @@ async def retrieve(
     candidates = _apply_policy_preferences(candidates, policy, use_rerank=False)
     candidates = _suppress_other_program_pages(candidates, policy)
     candidates = _suppress_curriculum_support_pages(candidates, policy)
+    candidates = _prefer_targeted_sources_for_support(candidates, policy)
 
     if not RERANK_ENABLED:
         limited = _enforce_same_source_limit(candidates, policy.same_source_limit if policy else 1)
@@ -468,5 +498,6 @@ async def retrieve(
     reranked = _apply_policy_preferences(reranked, policy, use_rerank=True)
     reranked = _suppress_other_program_pages(reranked, policy)
     reranked = _suppress_curriculum_support_pages(reranked, policy)
+    reranked = _prefer_targeted_sources_for_support(reranked, policy)
     limited = _enforce_same_source_limit(reranked, policy.same_source_limit if policy else 1)
     return limited[:k]

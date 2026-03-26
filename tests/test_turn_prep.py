@@ -238,3 +238,107 @@ def test_program_declaration_reply_uses_ascii_safe_text():
     result = prepare_turn("abc", "Criminology", state)
 
     assert result.workflow_reply == "Got it - I've updated your program to Criminology. What would you like to know about it?"
+
+
+def test_student_process_questions_are_soft_admitted_to_rag():
+    state = SessionState(session_id="abc")
+
+    for question, expected_intent in (
+        ("How do I enroll in a class?", "COURSE_ENROLMENT"),
+        ("How do I add, drop, or swap classes?", "COURSE_MANAGEMENT"),
+        ("How do I switch my major?", "PROGRAM_CHANGE"),
+        ("What do I do if a class is full?", "COURSE_WAITLIST"),
+        ("What happens if I miss the course intentions period?", "COURSE_INTENTIONS"),
+        ("Am I on track to graduate in 4 years?", "GRADUATION_PROGRESS"),
+        ("When is the exam period?", "EXAM_DATES"),
+        ("What happens if my GPA falls?", "GPA_STANDING"),
+        ("What should I do if I miss a test or quiz?", "MISSED_ASSESSMENT"),
+    ):
+        result = prepare_turn("abc", question, state)
+        assert result.workflow_reply is None
+        assert result.state_after.last_intent == expected_intent
+        assert result.effective_question == question
+
+
+
+def test_program_overview_question_reaches_rag_and_keeps_program():
+    state = SessionState(session_id="abc")
+    result = prepare_turn("abc", "What can you tell me about the Politics and Governance program?", state)
+
+    assert result.workflow_reply is None
+    assert result.state_after.last_intent == "PROGRAM_OVERVIEW"
+    assert "Politics and Governance" in result.effective_question
+
+
+
+def test_topic_pivot_clears_stale_pending_program_before_answering_new_supported_question():
+    state = SessionState(
+        session_id="abc",
+        pending_slot="program",
+        pending_intent="PROGRAM_REQUIREMENTS",
+        active_topic="What are the required courses for my major?",
+        last_effective_question="What are the required courses for my major?",
+        last_user_question="What are the required courses for my major?",
+    )
+    result = prepare_turn("abc", "When is the exam period?", state)
+
+    assert result.workflow_reply is None
+    assert result.state_after.pending_slot is None
+    assert result.state_after.pending_intent is None
+    assert result.state_after.last_intent == "EXAM_DATES"
+    assert result.effective_question == "When is the exam period?"
+
+
+
+def test_unsupported_turn_clears_pending_state_and_old_topic_context():
+    state = SessionState(
+        session_id="abc",
+        pending_slot="program",
+        pending_intent="PROGRAM_REQUIREMENTS",
+        active_topic="What are the required courses for my major?",
+        last_effective_question="What are the required courses for my major?",
+        last_user_question="What are the required courses for my major?",
+    )
+    result = prepare_turn("abc", "Who is Dr. Valerie Deacon?", state)
+
+    assert result.workflow_reply == turn_prep._FALLBACK_REPLY
+    assert result.state_after.pending_slot is None
+    assert result.state_after.pending_intent is None
+    assert result.state_after.active_topic is None
+    assert result.state_after.last_effective_question is None
+
+
+def test_standalone_exam_question_is_not_rewritten_as_follow_up_of_prior_topic():
+    state = SessionState(
+        session_id="abc",
+        last_effective_question="How do I add, drop, or swap classes?",
+        last_intent="COURSE_MANAGEMENT",
+        active_topic="How do I add, drop, or swap classes?",
+        turn_count=4,
+    )
+    result = prepare_turn("abc", "When are exams this semester?", state)
+
+    assert result.workflow_reply is None
+    assert result.state_after.last_intent == "EXAM_DATES"
+    assert result.effective_question == "When are exams this semester?"
+    assert "Prior topic:" not in result.effective_question
+
+
+def test_chang_school_question_is_not_hijacked_by_previous_topic_or_follow_up_logic():
+    state = SessionState(
+        session_id="abc",
+        last_effective_question="How do I switch my major?",
+        last_intent="PROGRAM_CHANGE",
+        active_topic="How do I switch my major?",
+        turn_count=5,
+    )
+    result = prepare_turn(
+        "abc",
+        "Can I take a class at the Chang School? Will it count towards my degree?",
+        state,
+    )
+
+    assert result.workflow_reply is None
+    assert result.state_after.last_intent == "CHANG_SCHOOL_CREDIT"
+    assert result.effective_question == "Can I take a class at the Chang School? Will it count towards my degree?"
+    assert "Prior topic:" not in result.effective_question

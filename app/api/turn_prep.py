@@ -8,6 +8,7 @@ import sys
 from typing import Optional
 
 from app.api.program_registry import match_program
+from app.api.retrieval_policy import choose_retrieval_policy
 from app.api.session_store import SessionState
 
 
@@ -18,10 +19,27 @@ _SUPPORTED_ACADEMIC_INTENTS = {
     "PROGRAMS_LIST_UNDERGRAD",
     "PROGRAMS_LIST_GRAD",
     "MINOR_CERTIFICATE",
+    "MINOR_DECLARATION",
     "ADMISSIONS",
     "STUDENT_SUPPORT",
     "ACADEMIC_FOLLOW_UP",
     "COURSE_PLANNING",
+    "COURSE_ENROLMENT",
+    "COURSE_INTENTIONS",
+    "COURSE_WAITLIST",
+    "COURSE_MANAGEMENT",
+    "PROGRAM_CHANGE",
+    "GRADUATION_PROGRESS",
+    "ACADEMIC_CONSIDERATION",
+    "MISSED_ASSESSMENT",
+    "ACADEMIC_STANDING",
+    "GPA_STANDING",
+    "IMPORTANT_DATES",
+    "EXAM_DATES",
+    "ADVISOR_CONTACT",
+    "CHANG_SCHOOL_CREDIT",
+    "ACADEMIC_ACCOMMODATIONS",
+    "MENTAL_HEALTH_SUPPORT",
 }
 _PROGRAM_REQUIRED_INTENTS = {"PROGRAM_REQUIREMENTS", "PROGRAM_COOP", "PROGRAM_OVERVIEW"}
 _PROGRAM_CONTEXT_MAX_AGE = 8
@@ -112,6 +130,9 @@ def prepare_turn(session_id: str, user_question: str, state_before: SessionState
 
     effective_question = user_question.strip()
     workflow_reply: Optional[str] = None
+
+    if _should_clear_pending_state_for_new_turn(act, state_before, detected_program):
+        _clear_pending_context(state_after)
 
     routed = _route_conversation_act(act, state_before, state_after)
     if routed is not None:
@@ -211,9 +232,13 @@ def prepare_turn(session_id: str, user_question: str, state_before: SessionState
             state_after.active_topic = effective_question
 
     if workflow_reply:
-        if not state_after.active_topic:
-            state_after.active_topic = state_before.active_topic
-        state_after.last_effective_question = state_before.last_effective_question
+        if routed and routed.preserve_context:
+            if not state_after.active_topic:
+                state_after.active_topic = state_before.active_topic
+            state_after.last_effective_question = state_before.last_effective_question
+        else:
+            state_after.active_topic = None
+            state_after.last_effective_question = None
         effective_question = user_question.strip()
     else:
         state_after.last_effective_question = effective_question
@@ -394,7 +419,12 @@ def _route_conversation_act(
         )
 
     if act.kind == "UNSUPPORTED":
-        return RoutedTurn(reply=_FALLBACK_REPLY, intent_label="FALLBACK", preserve_context=True)
+        return RoutedTurn(
+            reply=_FALLBACK_REPLY,
+            intent_label="FALLBACK",
+            preserve_context=False,
+            clear_pending_program=True,
+        )
 
     return None
 
@@ -416,6 +446,11 @@ def _classify_supported_academic_intent(
         return "PROGRAM_REQUIREMENTS"
     if _asks_about_coop(q):
         return "PROGRAM_COOP"
+
+    direct_policy = choose_retrieval_policy(question, question)
+    if direct_policy.label != "DEFAULT":
+        return direct_policy.label
+
     if _asks_about_minor_or_certificate(q):
         return "MINOR_CERTIFICATE"
     if _asks_about_admissions(q):
@@ -426,10 +461,14 @@ def _classify_supported_academic_intent(
         return "PROGRAM_OVERVIEW"
     if detected_program and _is_program_scoped(q):
         return "PROGRAM_REQUIREMENTS"
-    if state.last_effective_question and _is_supported_follow_up(q):
-        return "ACADEMIC_FOLLOW_UP"
     if state.program and _can_apply_program_context(state) and _is_referential_program_followup(question):
         return "PROGRAM_REQUIREMENTS"
+    if state.last_effective_question and _is_supported_follow_up(question):
+        return "ACADEMIC_FOLLOW_UP"
+
+    policy = choose_retrieval_policy(question, _rewrite_supported_question(question, state))
+    if policy.label != "DEFAULT":
+        return policy.label
 
     return None
 
@@ -530,6 +569,44 @@ def _program_for_supported_turn(question: str, state: SessionState) -> Optional[
     return state.program
 
 
+def _clear_pending_context(state: SessionState) -> None:
+    state.pending_slot = None
+    state.pending_intent = None
+    state.active_topic = None
+
+
+def _should_clear_pending_state_for_new_turn(
+    act: ConversationAct,
+    state: SessionState,
+    detected_program: Optional[str],
+) -> bool:
+    if not state.pending_slot and not state.pending_intent:
+        return False
+
+    if act.kind in {"PROGRAM_DECLARATION", "PROGRAM_CORRECTION", "YEAR_DECLARATION"}:
+        return False
+
+    if state.pending_slot == "program" and detected_program:
+        return False
+    if state.pending_slot == "year" and act.study_year:
+        return False
+
+    if act.kind == "UNSUPPORTED":
+        return True
+
+    if act.kind != "SUPPORTED_ACADEMIC":
+        return False
+
+    pending_intent = state.pending_intent
+    if state.pending_slot == "program":
+        return pending_intent != act.academic_intent
+
+    if state.pending_slot == "year":
+        return pending_intent != "COURSE_PLANNING" or act.academic_intent != "COURSE_PLANNING"
+
+    return False
+
+
 def _asks_for_course_planning(question: str) -> bool:
     q = _normalize(question)
     patterns = (
@@ -595,7 +672,7 @@ def _asks_about_coop(q: str) -> bool:
 
 
 def _asks_about_minor_or_certificate(q: str) -> bool:
-    return any(token in q for token in (" minor", "minor ", "certificate", "concentration", "declare a minor"))
+    return any(token in q for token in (" minor", "minor ", "certificate", "concentration", "declare a minor", "pick a minor", "choose a minor", "select a minor"))
 
 
 def _asks_about_admissions(q: str) -> bool:
@@ -609,12 +686,14 @@ def _asks_about_student_support(q: str) -> bool:
             "mental health",
             "counselling",
             "counseling",
-            "probation",
-            "advisor",
-            "advising",
             "academic support",
             "student support",
             "support services",
+            "wellbeing",
+            "well being",
+            "accommodation",
+            "accommodations",
+            "probation",
         )
     )
 
@@ -624,6 +703,9 @@ def _asks_for_program_overview(q: str) -> bool:
         q.startswith(prefix)
         for prefix in (
             "tell me about",
+            "can you tell me about",
+            "what can you tell me about",
+            "tell me more about",
             "what is",
             "what about",
             "how about",
@@ -660,10 +742,82 @@ def _is_program_scoped(q: str) -> bool:
     )
 
 
-def _is_supported_follow_up(q: str) -> bool:
-    if any(q.startswith(marker) for marker in ("what if", "what about", "how about", "but can you", "and what about", "and can you")):
+def _is_supported_follow_up(question: str) -> bool:
+    q = _normalize(question)
+    if not q:
+        return False
+
+    explicit_followup_markers = (
+        "what if",
+        "what about",
+        "how about",
+        "and what about",
+        "and how about",
+        "but what about",
+        "but how about",
+        "but can you",
+        "and can you",
+        "does that",
+        "does it",
+        "will that",
+        "will it",
+        "can i do that",
+        "can i do it",
+        "how does that",
+        "how does it",
+        "when is that",
+        "when is it",
+    )
+    if any(q.startswith(marker) for marker in explicit_followup_markers):
         return True
-    return bool(re.search(r"\b(it|that|those|them|there|this|these)\b", q))
+
+    if _has_standalone_topic_anchor(q):
+        return False
+
+    referential_pattern = re.compile(r"\b(it|that|those|them|there|this|these)\b")
+    if len(q.split()) <= 8 and referential_pattern.search(q):
+        return True
+    return False
+
+
+def _has_standalone_topic_anchor(q: str) -> bool:
+    if match_program(q):
+        return True
+    anchors = (
+        "chang school",
+        "exam",
+        "exams",
+        "final exam",
+        "important dates",
+        "deadline",
+        "gpa",
+        "probation",
+        "minor",
+        "accommodation",
+        "accommodations",
+        "mental health",
+        "counselling",
+        "counseling",
+        "major",
+        "program",
+        "class",
+        "classes",
+        "course",
+        "courses",
+        "advisor",
+        "advising",
+        "waitlist",
+        "wait list",
+        "enroll",
+        "enrol",
+        "transfer",
+        "degree",
+        "academic consideration",
+        "test",
+        "quiz",
+        "midterm",
+    )
+    return any(token in q for token in anchors)
 
 
 def _normalize(text: str) -> str:
