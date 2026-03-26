@@ -470,6 +470,7 @@ docker-compose.yml
 - Continue tightening `tmu_core` so it stays evergreen and low-noise as the site changes.
 - Experiment with different prompt sizes, number of chunks, and chunk sizes, etc. to find out what the best balance is for each tuning knob in our specific case/dataset.
 - Add an answer formatting layer, tables for lists, numbered steps for procedures, bullet points for requirements, short summaries first, details after, sources at the end
+- Need to improve retrieval routing for course/program based questions. Ensure only the most important sources are passed to RAG for the LLM to use
 
 ## proposed todo:
 - Detect when a question asks for specific lists or information and either increase retrieved context, or fallback to tables.

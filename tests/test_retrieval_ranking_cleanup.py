@@ -96,3 +96,50 @@ def test_other_arts_calendar_program_pages_are_suppressed_when_exact_family_exis
     assert any(url.endswith('/psychology/table_i/') for url in urls)
     assert not any(url.endswith('/history/') for url in urls)
     assert not any(url.endswith('/english/') for url in urls)
+
+
+
+def test_curriculum_support_pages_are_suppressed_when_exact_program_and_table_exist():
+    from app.rag.retrieval import _suppress_curriculum_support_pages
+    policy = choose_retrieval_policy(
+        "What courses should I pick for Politics and Governance second year?",
+        "What courses should a second year student in the Politics and Governance program take in TMU Faculty of Arts? Prioritize the exact single-program undergraduate calendar curriculum tables and semester rows.",
+    )
+    candidates = [
+        _cand("https://www.torontomu.ca/calendar/2025-2026/programs/arts/politics/", "Full-Time, Four-Year Program", 2.0),
+        _cand("https://www.torontomu.ca/calendar/2025-2026/programs/arts/politics/table_i/", "Social Sciences", 2.0),
+        _cand("https://www.torontomu.ca/current-students/course-enrolment/course-intentions/", "Understand your curriculum requirements", 3.0),
+        _cand("https://www.torontomu.ca/myservicehub-support/students/academics/advisement-report/", "Full-Time Undergraduate Degree Students", 3.0),
+    ]
+    ranked = _apply_policy_preferences(candidates, policy, use_rerank=False)
+    filtered = _suppress_curriculum_support_pages(ranked, policy)
+    urls = [c["chunk_url"] for c in filtered]
+    assert any(url.endswith('/politics/') for url in urls)
+    assert any(url.endswith('/politics/table_i/') for url in urls)
+    assert not any('/course-enrolment/' in url for url in urls)
+    assert not any('/myservicehub-support/' in url for url in urls)
+
+
+def test_year_specific_rows_beat_general_overview_for_course_planning():
+    policy = choose_retrieval_policy(
+        "What courses should I pick for English third year?",
+        "What courses should a third year student in the English program take in TMU Faculty of Arts? Prioritize exact year-specific rows such as Semesters Five and Six.",
+    )
+    overview = {
+        "chunk_url": "https://www.torontomu.ca/calendar/2025-2026/programs/arts/english/",
+        "source_url": "https://www.torontomu.ca/calendar/2025-2026/programs/arts/english/",
+        "section": "Program Overview/Curriculum Information",
+        "chunk": "General overview of the English program.",
+        "hybrid_score": 2.0,
+        "rerank_score": 2.0,
+    }
+    year_row = {
+        "chunk_url": "https://www.torontomu.ca/calendar/2025-2026/programs/arts/english/",
+        "source_url": "https://www.torontomu.ca/calendar/2025-2026/programs/arts/english/",
+        "section": "Full-Time, Four-Year Program",
+        "chunk": "Semesters Five and Six: ENG 503, ENG 520 and electives.",
+        "hybrid_score": 2.0,
+        "rerank_score": 2.0,
+    }
+    ranked = _apply_policy_preferences([overview, year_row], policy, use_rerank=False)
+    assert ranked[0]["section"] == "Full-Time, Four-Year Program"

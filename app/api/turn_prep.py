@@ -453,18 +453,25 @@ def _query_for_pending_intent(intent: str, program: str) -> str:
 def _program_requirements_query(program: str) -> str:
     return (
         f"What are the required courses, year-by-year requirements, and degree requirements "
-        f"for the {program} program in TMU Faculty of Arts? Use the exact undergraduate calendar page and its Table I/II or Required Group sections when relevant, "
+        f"for the {program} program in TMU Faculty of Arts? Use the exact single-program undergraduate calendar page and its Table I/II or Required Group sections when relevant, "
         f"and avoid combined-program or other-program Arts calendar pages unless absolutely necessary."
     )
 
 
 def _course_planning_query(program: str, study_year: str) -> str:
     year_phrase = study_year.replace("-", " ")
+    semester_hint = {
+        "first year": "Semesters One and Two",
+        "second year": "Semesters Three and Four",
+        "third year": "Semesters Five and Six",
+        "fourth year": "Semesters Seven and Eight",
+    }.get(year_phrase, year_phrase)
     return (
         f"What courses should a {year_phrase} student in the {program} program take in TMU Faculty of Arts? "
-        f"Prioritize the exact undergraduate calendar curriculum tables, year-specific requirements, Table I/II pages, Required Group sections, "
+        f"Prioritize the exact single-program undergraduate calendar curriculum tables, year-specific requirements, semester rows such as {semester_hint}, Table I/II pages, Required Group sections, "
         f"and the Full-Time, Four-Year Program for the exact {program} page. "
         f"Prefer exact table rows and year-specific required-course lists over general overview prose, and avoid combined-program or other-program Arts calendar pages unless absolutely necessary. "
+        f"Only include courses or requirement groups that are explicitly supported by the exact year-specific curriculum evidence. "
         f"Unless the student explicitly asks about co-op, default to the standard full-time four-year path and mention any co-op variation only briefly if relevant."
     )
 

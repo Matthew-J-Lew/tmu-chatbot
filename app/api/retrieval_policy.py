@@ -7,21 +7,21 @@ from typing import Optional, Tuple
 from app.api.program_registry import match_program
 
 
-_PROGRAM_SLUGS = {
-    "Arts and Contemporary Studies": "arts-contemporary-studies",
-    "Criminology": "criminology",
-    "Economics and Finance": "economics_finance",
-    "English": "english",
-    "Environment and Urban Sustainability": "environment_urban_sustainability",
-    "Geographic Analysis": "geographic_analysis",
-    "History": "history",
-    "Language and Intercultural Relations": "language_intercultural_relations",
-    "Philosophy": "philosophy",
-    "Politics and Governance": "politics_governance",
-    "Psychology": "psychology",
-    "Public Administration and Governance": "public_admin",
-    "Sociology": "sociology",
-    "Undeclared Arts": "undeclared_arts",
+_PROGRAM_CALENDAR_SLUG_ALIASES = {
+    "Arts and Contemporary Studies": ("arts_contemporary_studies", "arts-contemporary-studies"),
+    "Criminology": ("criminology",),
+    "Economics and Finance": ("economics_finance", "economics-and-finance"),
+    "English": ("english",),
+    "Environmental and Urban Sustainability": ("environment_urban_sustainability", "environmental_and_urban_sustainability"),
+    "Geographic Analysis": ("geographic_analysis",),
+    "History": ("history",),
+    "Language and Intercultural Relations": ("language_intercultural_relations",),
+    "Philosophy": ("philosophy",),
+    "Politics and Governance": ("politics", "politics_governance"),
+    "Psychology": ("psychology",),
+    "Public Administration and Governance": ("public_admin", "public_administration", "public_administration_governance"),
+    "Sociology": ("sociology",),
+    "Undeclared Arts": ("undeclared_arts",),
 }
 
 
@@ -36,6 +36,7 @@ class RetrievalPolicy:
     same_source_limit: int = 1
     canonical_fallback: bool = False
     program_slug: Optional[str] = None
+    program_slug_aliases: Tuple[str, ...] = ()
 
     def cache_token(self) -> str:
         slug_token = f":{self.program_slug}" if self.program_slug else ""
@@ -64,12 +65,17 @@ def _asks_for_count(q: str) -> bool:
     return "how many" in q or "number of" in q or "count of" in q
 
 
-def _extract_program_slug(raw_question: str, effective_question: str) -> Optional[str]:
+def _program_slug_aliases(raw_question: str, effective_question: str) -> Tuple[str, ...]:
     for candidate in (effective_question, raw_question):
         program = match_program(candidate)
         if program:
-            return _PROGRAM_SLUGS.get(program)
-    return None
+            return _PROGRAM_CALENDAR_SLUG_ALIASES.get(program, ())
+    return ()
+
+
+def _extract_program_slug(raw_question: str, effective_question: str) -> Optional[str]:
+    aliases = _program_slug_aliases(raw_question, effective_question)
+    return aliases[0] if aliases else None
 
 
 def _extract_study_year(raw_question: str, effective_question: str) -> Optional[str]:
@@ -193,9 +199,20 @@ def _is_student_support_question(q: str) -> bool:
     ))
 
 
-def _calendar_policy(label: str, effective_question: str, slug: str, *, prefer_coop: bool = False) -> RetrievalPolicy:
-    base_path_2025 = f"/calendar/2025-2026/programs/arts/{slug}"
-    base_path_2026 = f"/calendar/2026-2027/programs/arts/{slug}"
+def _calendar_policy(label: str, effective_question: str, slug: str, *, slug_aliases: Tuple[str, ...] = (), prefer_coop: bool = False) -> RetrievalPolicy:
+    slug_aliases = tuple(dict.fromkeys((slug,) + tuple(slug_aliases or ())))
+    preferred_urls = []
+    for candidate_slug in slug_aliases:
+        base_path_2025 = f"/calendar/2025-2026/programs/arts/{candidate_slug}"
+        base_path_2026 = f"/calendar/2026-2027/programs/arts/{candidate_slug}"
+        preferred_urls.extend([
+            base_path_2025,
+            base_path_2026,
+            f"{base_path_2025}/table_i",
+            f"{base_path_2025}/table_ii",
+            f"{base_path_2026}/table_i",
+            f"{base_path_2026}/table_ii",
+        ])
 
     if label == "COURSE_PLANNING_CALENDAR":
         preferred_sections = [
@@ -234,14 +251,7 @@ def _calendar_policy(label: str, effective_question: str, slug: str, *, prefer_c
     return RetrievalPolicy(
         label=label,
         retrieval_query=effective_question,
-        preferred_urls=(
-            base_path_2025,
-            base_path_2026,
-            f"{base_path_2025}/table_i",
-            f"{base_path_2025}/table_ii",
-            f"{base_path_2026}/table_i",
-            f"{base_path_2026}/table_ii",
-        ),
+        preferred_urls=tuple(preferred_urls),
         discouraged_urls=(
             "/myservicehub-support/students/academics/advisement-report",
             "/arts/undergraduate/academic-support/academic-advising",
@@ -254,6 +264,7 @@ def _calendar_policy(label: str, effective_question: str, slug: str, *, prefer_c
         discouraged_section_terms=tuple(discouraged_sections),
         same_source_limit=same_source_limit,
         program_slug=slug,
+        program_slug_aliases=slug_aliases,
     )
 
 
@@ -262,6 +273,7 @@ def choose_retrieval_policy(raw_question: str, effective_question: str) -> Retri
     eff = _normalize(effective_question)
     combined = f"{raw} || {eff}"
     program_slug = _extract_program_slug(raw_question, effective_question)
+    program_slug_aliases = _program_slug_aliases(raw_question, effective_question)
     study_year = _extract_study_year(raw_question, effective_question)
 
     if _is_arts_undergrad_program_list(combined):
@@ -349,10 +361,22 @@ def choose_retrieval_policy(raw_question: str, effective_question: str) -> Retri
         )
 
     if _is_course_planning_question(combined) and program_slug and study_year:
-        return _calendar_policy("COURSE_PLANNING_CALENDAR", effective_question, program_slug, prefer_coop=_mentions_coop(raw_question, effective_question))
+        return _calendar_policy(
+            "COURSE_PLANNING_CALENDAR",
+            effective_question,
+            program_slug,
+            slug_aliases=program_slug_aliases,
+            prefer_coop=_mentions_coop(raw_question, effective_question),
+        )
 
     if _is_program_requirements_question(combined) and program_slug:
-        return _calendar_policy("PROGRAM_REQUIREMENTS_CALENDAR", effective_question, program_slug, prefer_coop=_mentions_coop(raw_question, effective_question))
+        return _calendar_policy(
+            "PROGRAM_REQUIREMENTS_CALENDAR",
+            effective_question,
+            program_slug,
+            slug_aliases=program_slug_aliases,
+            prefer_coop=_mentions_coop(raw_question, effective_question),
+        )
 
     if _is_course_planning_question(combined):
         return RetrievalPolicy(

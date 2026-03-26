@@ -304,6 +304,23 @@ def _canonical_source_key(url: str, section: Optional[str]) -> str:
     return (url or '').strip().lower().rstrip('/')
 
 
+def _is_curriculum_answer_question(question: str) -> bool:
+    q = normalize_question(question)
+    return any(token in q for token in (
+        'what courses should i pick',
+        'what courses should i take',
+        'what classes should i pick',
+        'what classes should i take',
+        'required courses',
+        'required classes',
+        'degree requirements',
+        'first year',
+        'second year',
+        'third year',
+        'fourth year',
+    ))
+
+
 def build_messages_and_sources(
     question: str, chunks: List[Dict[str, Any]]
 ) -> tuple[List[Dict[str, str]], List[SourceItem]]:
@@ -348,6 +365,14 @@ def build_messages_and_sources(
         "When you state a fact, cite it using [1], [2], etc.\n"
         "Keep the answer concise and factual.\n"
     )
+
+    if _is_curriculum_answer_question(question):
+        system_instructions += (
+            "For curriculum and course-planning questions, rely on the exact single-program year-specific curriculum evidence.\n"
+            "Prefer exact semester rows, Full-Time Four-Year Program rows, and exact Table I/II or Required Group sections over general overview prose.\n"
+            "Do not combine requirements from sibling or double-major programs.\n"
+            "Only list a course, table, or requirement group when it is explicitly supported by the provided context. If the exact year-specific evidence is incomplete, say so.\n"
+        )
 
     user_content = (
         f"USER QUESTION:\n{question}\n\n"
