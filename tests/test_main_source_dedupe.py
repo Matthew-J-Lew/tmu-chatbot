@@ -58,6 +58,8 @@ st_mod.CrossEncoder = DummyCrossEncoder
 sys.modules.setdefault("sentence_transformers", st_mod)
 
 from app.api.main import (
+    _postprocess_answer,
+    _remap_answer_citations,
     build_messages_and_sources,
     build_response_cache_identity,
     build_retrieval_cache_identity,
@@ -65,31 +67,39 @@ from app.api.main import (
 from app.api.retrieval_policy import choose_retrieval_policy
 
 
-def test_build_messages_and_sources_dedupes_returned_sources_by_url():
-    chunks = [
-        {
-            "chunk_url": "https://example.com/a",
-            "source_url": "https://example.com/a",
-            "section": "Program Overview/Curriculum Information",
-            "chunk": "Chunk one",
-        },
-        {
-            "chunk_url": "https://example.com/a",
-            "source_url": "https://example.com/a",
-            "section": "Program Overview/Curriculum Information",
-            "chunk": "Chunk two",
-        },
-        {
-            "chunk_url": "https://example.com/a",
-            "source_url": "https://example.com/a",
-            "section": "Table I",
-            "chunk": "Chunk three",
-        },
-    ]
+def test_remap_answer_citations_dedupes_sources_by_canonical_page_and_renumbers():
+    _, source_lookup = build_messages_and_sources(
+        "q",
+        [
+            {
+                "chunk_url": "https://example.com/a",
+                "source_url": "https://example.com/a",
+                "section": "Program Overview/Curriculum Information",
+                "chunk": "Chunk one",
+            },
+            {
+                "chunk_url": "https://example.com/a",
+                "source_url": "https://example.com/a",
+                "section": "Table I",
+                "chunk": "Chunk two",
+            },
+            {
+                "chunk_url": "https://example.com/b",
+                "source_url": "https://example.com/b",
+                "section": "Table II",
+                "chunk": "Chunk three",
+            },
+        ],
+    )
 
-    _, sources = build_messages_and_sources("q", chunks)
-    assert len(sources) == 1
-    assert sources[0].section == "Program Overview/Curriculum Information"
+    rewritten, used_sources = _remap_answer_citations(
+        "Overview [2]. More detail [1][3].",
+        source_lookup,
+    )
+
+    assert rewritten == "Overview [1]. More detail [1][2]."
+    assert [s.url for s in used_sources] == ["https://example.com/a", "https://example.com/b"]
+    assert [s.id for s in used_sources] == [1, 2]
 
 
 def test_response_cache_identity_uses_concrete_question_for_same_policy_family():
@@ -110,3 +120,52 @@ def test_retrieval_cache_identity_uses_concrete_question_for_same_policy_family(
 
     assert p1.label == p2.label == "COURSE_MANAGEMENT"
     assert build_retrieval_cache_identity(q1, p1) != build_retrieval_cache_identity(q2, p2)
+
+
+def test_remap_answer_citations_shows_only_cited_sources_and_drops_unused_ones():
+    _, source_lookup = build_messages_and_sources(
+        "q",
+        [
+            {
+                "chunk_url": f"https://example.com/{i}",
+                "source_url": f"https://example.com/{i}",
+                "section": f"Section {i}",
+                "chunk": f"Chunk {i}",
+            }
+            for i in range(1, 6)
+        ],
+    )
+
+    rewritten, used_sources = _remap_answer_citations("Use these [4][2].", source_lookup)
+
+    assert rewritten == "Use these [1][2]."
+    assert [s.url for s in used_sources] == ["https://example.com/4", "https://example.com/2"]
+
+
+def test_postprocess_curriculum_answer_removes_summary_notes_and_references_sections():
+    answer = """## 1st & 2nd Semester Requirements
+- Item A [1]
+
+## 3rd & 4th Semester Requirements
+- Item B [2]
+
+## Summary of Degree Requirements
+- Repeats everything [1][2]
+
+## Notes on Table I and Table II
+- Extra notes [3]
+
+**References:**
+- Source A
+- Source B
+"""
+
+    class Policy:
+        label = "PROGRAM_REQUIREMENTS_CALENDAR"
+
+    cleaned = _postprocess_answer(answer, "What are my required courses?", policy=Policy())
+    assert "Summary of Degree Requirements" not in cleaned
+    assert "Notes on Table I and Table II" not in cleaned
+    assert "**References:**" not in cleaned
+    assert "1st & 2nd Semester Requirements" in cleaned
+    assert "3rd & 4th Semester Requirements" in cleaned

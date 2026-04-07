@@ -160,6 +160,350 @@
     return postJson(url, body);
   }
 
+  function isMarkdownBlockStart(line) {
+    const trimmed = String(line || '').trim();
+    return (
+      /^#{1,6}\s+/.test(trimmed) ||
+      isHorizontalRule(trimmed) ||
+      /^\s*[-+*]\s+/.test(line || '') ||
+      /^\s*\d+\.\s+/.test(line || '')
+    );
+  }
+
+  function isHorizontalRule(line) {
+    const compact = String(line || '').trim().replace(/\s+/g, '');
+    return compact.length >= 3 && (/^-+$/.test(compact) || /^\*+$/.test(compact) || /^_+$/.test(compact));
+  }
+
+  function escapeHtml(text) {
+    return String(text || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function safeHref(href) {
+    const raw = String(href || '').trim();
+    if (!raw) return '';
+    try {
+      const parsed = new URL(raw, window.location.href);
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return '';
+      return parsed.href;
+    } catch (_e) {
+      return '';
+    }
+  }
+
+  function renderInlineMarkdownHtml(text) {
+    const placeholders = [];
+    let html = escapeHtml(String(text || '').replace(/\u00a0/g, ' '));
+
+    function store(fragment) {
+      const key = `__MDTOKEN_${placeholders.length}__`;
+      placeholders.push(fragment);
+      return key;
+    }
+
+    html = html.replace(/`([^`]+)`/g, (_m, codeText) => store(`<code>${codeText}</code>`));
+
+    html = html.replace(/\[([^\]]+)\]\(([^\s)]+)\)/g, (_m, label, href) => {
+      const safe = safeHref(href);
+      if (!safe) return label;
+      return store(`<a href="${escapeHtml(safe)}" target="_blank" rel="noopener noreferrer">${label}</a>`);
+    });
+
+    html = html.replace(/(?:\[(?:\d+(?:\s*,\s*\d+)*)\])+/g, (match) => {
+      const ids = Array.from(new Set((match.match(/\d+/g) || []).map((value) => Number(value)).filter(Boolean)));
+      if (!ids.length) return match;
+      const pills = ids
+        .map((id) => `<button type="button" class="citePill" data-cite-id="${id}" aria-label="Open source ${id}">[${id}]</button>`)
+        .join('');
+      return store(`<span class="citeGroup">${pills}</span>`);
+    });
+
+    html = html.replace(/\*\*([^*]+?)\*\*/g, '<strong>$1</strong>');
+    html = html.replace(/__([^_]+?)__/g, '<strong>$1</strong>');
+    html = html.replace(/(^|[^*])\*([^*]+?)\*(?!\*)/g, '$1<em>$2</em>');
+    html = html.replace(/(^|[^_])_([^_]+?)_(?!_)/g, '$1<em>$2</em>');
+
+    return html.replace(/__MDTOKEN_(\d+)__/g, (_m, idx) => placeholders[Number(idx)] || '');
+  }
+
+  function parseListMarker(rawLine) {
+    const match = /^(\s*)([-+*]|\d+\.)\s+(.+)$/.exec(rawLine || '');
+    if (!match) return null;
+    const indent = match[1].replace(/\t/g, '    ').length;
+    const marker = match[2];
+    return {
+      indent,
+      type: /\d+\./.test(marker) ? 'ol' : 'ul',
+      content: match[3],
+    };
+  }
+
+  function buildListHtml(lines, startIndex) {
+    const stack = [];
+    let html = '';
+    let i = startIndex;
+
+    function openList(type) {
+      html += `<${type} class="mdList md${type === 'ul' ? 'Ul' : 'Ol'}">`;
+      stack.push(type);
+    }
+
+    function closeTo(level) {
+      while (stack.length > level) {
+        html += '</li></' + stack.pop() + '>';
+      }
+    }
+
+    while (i < lines.length) {
+      const line = lines[i];
+      if (!String(line || '').trim()) break;
+
+      const item = parseListMarker(line);
+      if (!item) break;
+
+      const level = Math.floor(item.indent / 2);
+
+      if (!stack.length) {
+        openList(item.type);
+        html += '<li>' + renderInlineMarkdownHtml(item.content.trim());
+        i += 1;
+        continue;
+      }
+
+      if (level > stack.length - 1) {
+        openList(item.type);
+        html += '<li>' + renderInlineMarkdownHtml(item.content.trim());
+        i += 1;
+        continue;
+      }
+
+      closeTo(level + 1);
+
+      const currentType = stack[stack.length - 1];
+      if (currentType !== item.type) {
+        html += `</li></${stack.pop()}>`;
+        openList(item.type);
+      } else {
+        html += '</li>';
+      }
+
+      html += '<li>' + renderInlineMarkdownHtml(item.content.trim());
+      i += 1;
+    }
+
+    closeTo(0);
+    return { html, nextIndex: i };
+  }
+
+  function renderAssistantMarkdown(text) {
+    const normalized = String(text || '')
+      .replace(/\r\n?/g, '\n')
+      .replace(/\u200b/g, '')
+      .replace(/\u00a0/g, ' ');
+    const lines = normalized.split('\n');
+    let html = '';
+    let i = 0;
+
+    while (i < lines.length) {
+      const line = lines[i];
+      const trimmed = String(line || '').trim();
+
+      if (!trimmed) {
+        i += 1;
+        continue;
+      }
+
+      const headingMatch = /^(#{1,6})\s+(.+)$/.exec(trimmed);
+      if (headingMatch) {
+        const level = Math.min(headingMatch[1].length, 4);
+        html += `<h${level} class="mdHeading mdHeading${level}">${renderInlineMarkdownHtml(headingMatch[2].trim())}</h${level}>`;
+        i += 1;
+        continue;
+      }
+
+      if (isHorizontalRule(trimmed)) {
+        html += '<hr class="mdRule">';
+        i += 1;
+        continue;
+      }
+
+      if (parseListMarker(line)) {
+        const built = buildListHtml(lines, i);
+        html += built.html;
+        i = built.nextIndex;
+        continue;
+      }
+
+      const paraLines = [];
+      while (i < lines.length) {
+        const candidate = lines[i];
+        if (!String(candidate || '').trim()) break;
+        if (paraLines.length && isMarkdownBlockStart(candidate)) break;
+        if (!paraLines.length && (isHorizontalRule(String(candidate || '').trim()) || /^(#{1,6})\s+/.test(String(candidate || '').trim()) || parseListMarker(candidate))) break;
+        paraLines.push(String(candidate || '').trimRight());
+        i += 1;
+      }
+
+      if (paraLines.length) {
+        html += `<p class="mdParagraph">${paraLines.map((part) => renderInlineMarkdownHtml(part)).join('<br>')}</p>`;
+      } else {
+        i += 1;
+      }
+    }
+
+    const template = document.createElement('template');
+    template.innerHTML = `<div class="bubbleContent">${html}</div>`;
+
+    for (const a of template.content.querySelectorAll('a')) {
+      const href = safeHref(a.getAttribute('href'));
+      if (!href) {
+        a.replaceWith(document.createTextNode(a.textContent || ''));
+        continue;
+      }
+      a.setAttribute('href', href);
+      a.setAttribute('target', '_blank');
+      a.setAttribute('rel', 'noopener noreferrer');
+    }
+
+    return template.content;
+  }
+
+  function displaySourceTitle(source) {
+    const title = source && source.title ? String(source.title).trim() : '';
+    if (title && !/^https?:\/\//i.test(title)) return title;
+
+    const rawUrl = source && source.url ? String(source.url) : '';
+    if (!rawUrl) return 'Official TMU source';
+    try {
+      const parsed = new URL(rawUrl, window.location.href);
+      const tail = parsed.pathname.replace(/\/+$/, '').split('/').filter(Boolean).pop();
+      if (!tail) return parsed.hostname;
+      const pretty = tail.replace(/[-_]+/g, ' ').trim();
+      return pretty ? pretty.charAt(0).toUpperCase() + pretty.slice(1) : parsed.hostname;
+    } catch (_e) {
+      return rawUrl;
+    }
+  }
+
+  function normalizeCompareText(value) {
+    return String(value || '')
+      .toLowerCase()
+      .replace(/&/g, ' and ')
+      .replace(/[^a-z0-9]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  function sourceContextLabel(source) {
+    const rawUrl = source && source.url ? String(source.url) : '';
+    if (!rawUrl) return '';
+    try {
+      const parsed = new URL(rawUrl, window.location.href);
+      const path = parsed.pathname.toLowerCase();
+      if (path.includes('/calendar/')) return 'TMU Calendar';
+      if (path.includes('/myservicehub-support/')) return 'MyServiceHub Support';
+      if (path.includes('/current-students/')) return 'Current Students';
+      if (path.includes('/student-wellbeing/')) return 'Student Wellbeing';
+      if (path.includes('/arts/')) return 'Faculty of Arts';
+      return parsed.hostname.replace(/^www\./i, '');
+    } catch (_e) {
+      return '';
+    }
+  }
+
+  function displaySourceSubtitle(source) {
+    const title = displaySourceTitle(source);
+    const titleNorm = normalizeCompareText(title);
+    const section = source && source.section ? String(source.section).trim() : '';
+    const sectionNorm = normalizeCompareText(section);
+    if (section && sectionNorm && !titleNorm.includes(sectionNorm) && !sectionNorm.includes(titleNorm)) {
+      return section;
+    }
+    const label = sourceContextLabel(source);
+    const labelNorm = normalizeCompareText(label);
+    if (label && labelNorm && !titleNorm.includes(labelNorm) && !labelNorm.includes(titleNorm)) {
+      return label;
+    }
+    return '';
+  }
+
+  function buildSourcePanel(sources) {
+    const wrap = document.createElement('div');
+    wrap.className = 'sourceWrap';
+
+    const toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'sourceToggle';
+    toggle.setAttribute('aria-expanded', 'false');
+    toggle.textContent = `Sources (${sources.length})`;
+
+    const list = document.createElement('div');
+    list.className = 'sourceList';
+    list.hidden = true;
+
+    for (const source of sources) {
+      const item = document.createElement('div');
+      item.className = 'sourceItem';
+      item.dataset.sourceId = String(source.id);
+
+      const badge = document.createElement('span');
+      badge.className = 'sourceBadge';
+      badge.textContent = `[${source.id}]`;
+      item.appendChild(badge);
+
+      const body = document.createElement('div');
+      body.className = 'sourceBody';
+
+      const link = document.createElement('a');
+      const safeUrl = safeHref(source.url);
+      link.className = 'sourceTitle';
+      link.href = safeUrl || '#';
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      link.textContent = displaySourceTitle(source);
+      body.appendChild(link);
+
+      const subtitleText = displaySourceSubtitle(source);
+      if (subtitleText) {
+        const subtitle = document.createElement('div');
+        subtitle.className = 'sourceSubtitle';
+        subtitle.textContent = subtitleText;
+        body.appendChild(subtitle);
+      }
+
+      item.appendChild(body);
+      list.appendChild(item);
+    }
+
+    function setOpen(open) {
+      list.hidden = !open;
+      wrap.classList.toggle('open', open);
+      toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+    }
+
+    wrap.openSource = function (sourceId) {
+      if (!sourceId) return;
+      setOpen(true);
+      const target = list.querySelector(`.sourceItem[data-source-id="${String(sourceId)}"]`);
+      if (!target) return;
+      target.classList.remove('flash');
+      void target.offsetWidth;
+      target.classList.add('flash');
+      target.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    };
+
+    toggle.addEventListener('click', () => setOpen(list.hidden));
+
+    wrap.appendChild(toggle);
+    wrap.appendChild(list);
+    return wrap;
+  }
+
   const STYLE = `
     :host {
       display: block;
@@ -464,7 +808,7 @@
       border-radius: 14px;
       font-size: 14px;
       line-height: 1.42;
-      white-space: pre-wrap;
+      white-space: normal;
       word-break: break-word;
       transition: transform 180ms ease, box-shadow 180ms ease, background 180ms ease, border-color 180ms ease;
     }
@@ -481,6 +825,7 @@
       border: 1px solid #d3e0ff;
       color: #16325f;
       border-bottom-right-radius: 8px;
+      white-space: pre-wrap;
     }
 
     .msg:hover .bubble {
@@ -511,23 +856,159 @@
       padding: 0 4px;
     }
 
-    .citations {
-      margin: 2px 0 0 0;
-      padding-left: 20px;
-      font-size: 12px;
-      color: #3f3f46;
-      max-width: 88%;
+    .bubbleContent > :first-child { margin-top: 0; }
+    .bubbleContent > :last-child { margin-bottom: 0; }
+
+    .mdHeading {
+      margin: 0 0 6px;
+      line-height: 1.25;
+      font-weight: 700;
+      color: inherit;
     }
 
-    .citations li { margin: 3px 0; }
+    .mdHeading1 { font-size: 16px; }
+    .mdHeading2, .mdHeading3 { font-size: 15px; }
 
-    .citations a {
+    .mdParagraph {
+      margin: 0 0 6px;
+    }
+
+    .mdRule {
+      border: 0;
+      border-top: 1px solid #d4d4d8;
+      margin: 8px 0;
+    }
+
+    .mdList {
+      margin: 0 0 6px;
+      padding-left: 18px;
+    }
+
+    .mdList .mdList {
+      margin-top: 2px;
+      margin-bottom: 2px;
+    }
+
+    .mdList li {
+      margin: 2px 0;
+    }
+
+    .bubbleContent code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      font-size: 0.92em;
+      background: rgba(24, 24, 27, 0.06);
+      border: 1px solid rgba(24, 24, 27, 0.08);
+      border-radius: 6px;
+      padding: 1px 4px;
+    }
+
+    .assistant .bubble a {
       color: #1d4a97;
       text-decoration: none;
     }
 
-    .citations a:hover {
+    .assistant .bubble a:hover {
       text-decoration: underline;
+    }
+
+    .citeGroup {
+      display: inline-flex;
+      gap: 4px;
+      flex-wrap: wrap;
+      margin-left: 2px;
+      vertical-align: baseline;
+    }
+
+    .citePill {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 24px;
+      padding: 1px 6px;
+      border-radius: 999px;
+      border: 1px solid rgba(29, 74, 151, 0.18);
+      background: rgba(255, 255, 255, 0.85);
+      color: #1d4a97;
+      font-size: 11px;
+      font-weight: 600;
+      line-height: 1.45;
+    }
+
+    .assistant .bubble .citePill:hover {
+      background: #eef4ff;
+      text-decoration: none;
+    }
+
+    .sourceWrap {
+      width: min(88%, 100%);
+      margin-top: 4px;
+    }
+
+    .sourceToggle {
+      font-size: 11px;
+      padding: 5px 9px;
+      border-radius: 999px;
+      background: #f4f4f5;
+      color: #3f3f46;
+      border: 1px solid #e4e4e7;
+    }
+
+    .sourceList {
+      margin-top: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .sourceItem {
+      display: flex;
+      gap: 8px;
+      padding: 8px 10px;
+      border-radius: 10px;
+      border: 1px solid #ececf0;
+      background: #fafafa;
+      align-items: flex-start;
+    }
+
+    .sourceItem.flash {
+      animation: sourceFlash 1000ms ease;
+    }
+
+    @keyframes sourceFlash {
+      0% { background: #eef4ff; border-color: #bfd3ff; }
+      100% { background: #fafafa; border-color: #ececf0; }
+    }
+
+    .sourceBadge {
+      flex: 0 0 auto;
+      color: #1d4a97;
+      font-size: 11px;
+      font-weight: 700;
+      line-height: 1.4;
+      margin-top: 1px;
+    }
+
+    .sourceBody {
+      min-width: 0;
+    }
+
+    .sourceTitle {
+      color: #1d4a97;
+      text-decoration: none;
+      font-size: 12px;
+      font-weight: 600;
+      line-height: 1.35;
+    }
+
+    .sourceTitle:hover {
+      text-decoration: underline;
+    }
+
+    .sourceSubtitle {
+      margin-top: 2px;
+      color: #71717a;
+      font-size: 11px;
+      line-height: 1.35;
     }
 
     .spinner {
@@ -1149,6 +1630,8 @@
           const sp = document.createElement('span');
           sp.className = 'spinner';
           bubble.appendChild(sp);
+        } else if (m.role === 'assistant') {
+          bubble.appendChild(renderAssistantMarkdown(m.text || ''));
         } else {
           bubble.textContent = m.text || '';
         }
@@ -1178,19 +1661,17 @@
           if (meta.childNodes.length) msg.appendChild(meta);
 
           if (hasSources) {
-            const ul = document.createElement('ul');
-            ul.className = 'citations';
-            for (const s of m.sources) {
-              const li = document.createElement('li');
-              const a = document.createElement('a');
-              a.href = s.url || '#';
-              a.target = '_blank';
-              a.rel = 'noopener noreferrer';
-              a.textContent = s.title || s.url || 'source';
-              li.appendChild(a);
-              ul.appendChild(li);
-            }
-            msg.appendChild(ul);
+            const sourcePanel = buildSourcePanel(m.sources);
+            msg.appendChild(sourcePanel);
+
+            bubble.addEventListener('click', (event) => {
+              const target = event.target && event.target.closest ? event.target.closest('.citePill') : null;
+              if (!target) return;
+              event.preventDefault();
+              const sourceId = Number(target.getAttribute('data-cite-id'));
+              if (!sourceId || typeof sourcePanel.openSource !== 'function') return;
+              sourcePanel.openSource(sourceId);
+            });
           }
 
           if (showDebug) {

@@ -33,7 +33,7 @@ from app.rag.retrieval import _apply_policy_preferences, _apply_query_specific_b
 
 
 def test_course_planning_query_boosts_calendar_program_and_table_chunks():
-    query = "What courses should a first year student in the Criminology program take in TMU Faculty of Arts? Use the undergraduate calendar curriculum tables."
+    query = "What courses should a first year student in the Criminology program take in TMU Faculty of Arts? Start with the exact Criminology undergraduate calendar page's Full-Time, Four-Year Program and the semester block for 1st & 2nd Semester."
     candidates = [
         {
             "chunk_url": "https://www.torontomu.ca/arts/undergraduate/academic-support/",
@@ -60,8 +60,8 @@ def test_course_planning_query_boosts_calendar_program_and_table_chunks():
 
     ranked = _apply_query_specific_boosts(query, candidates, use_rerank=False)
 
-    assert ranked[0]["chunk_url"].endswith("/table_i/")
-    assert ranked[1]["chunk_url"].endswith("/criminology/")
+    assert ranked[0]["chunk_url"].endswith("/criminology/")
+    assert ranked[1]["chunk_url"].endswith("/table_i/")
     assert ranked[-1]["chunk_url"].endswith("/academic-support/")
 
 

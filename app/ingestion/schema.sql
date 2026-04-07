@@ -292,6 +292,7 @@ RETURNS TABLE(
   id BIGINT,
   chunk_url TEXT,
   source_url TEXT,
+  source_title TEXT,
   section TEXT,
   chunk TEXT,
   vector_score DOUBLE PRECISION,
@@ -304,6 +305,7 @@ AS $$
     c.id,
     c.url  AS chunk_url,
     s.url  AS source_url,
+    s.title AS source_title,
     c.section,
     c.chunk,
     (1 - (c.embedding <=> query_embedding))                         AS vector_score, -- cosine similarity via 1 - cosine_distance

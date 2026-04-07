@@ -28,6 +28,7 @@ async def retrieve_candidates(
           id,
           chunk_url,
           source_url,
+          source_title,
           section,
           chunk,
           vector_score,
@@ -105,6 +106,23 @@ def _is_course_planning_query(query: str) -> bool:
     return any(marker in q for marker in markers)
 
 
+def _is_program_requirements_query(query: str) -> bool:
+    q = _normalize_query(query)
+    markers = (
+        "required courses",
+        "required classes",
+        "degree requirements",
+        "course requirements",
+        "what courses do i need",
+        "what classes do i need",
+        "what are my required courses",
+        "what are the required courses",
+        "year by year requirements",
+        "curriculum groups",
+    )
+    return any(marker in q for marker in markers)
+
+
 def _program_list_bonus(query: str, cand: Dict[str, Any], use_rerank: bool = False) -> float:
     if not _is_arts_undergrad_program_list_query(query):
         return 0.0
@@ -145,22 +163,29 @@ def _course_planning_bonus(query: str, cand: Dict[str, Any], use_rerank: bool = 
     section = (cand.get("section") or "").lower()
     chunk = (cand.get("chunk") or "").lower()
     slug_hint = _program_slug_hint(query)
+    requested_year = _requested_study_year(query)
 
     bonus = 0.0
-    if "/calendar/" in url and "/programs/arts/" in url:
+    is_calendar_program = "/calendar/" in url and "/programs/arts/" in url
+    is_table_url = url.rstrip("/").endswith("/table_i") or url.rstrip("/").endswith("/table_ii")
+    is_main_program_url = is_calendar_program and not is_table_url
+
+    if is_calendar_program:
         bonus += 3.0
     if slug_hint and f"/{slug_hint}" in url:
-        bonus += 6.0
-    if url.rstrip("/").endswith("/table_i") or url.rstrip("/").endswith("/table_ii"):
+        bonus += 7.0
+    if is_main_program_url:
         bonus += 5.0
-    if any(label in section for label in (
-        "program overview/curriculum information",
-        "full-time, four-year program",
-        "full-time, five-year co-op program",
-    )):
-        bonus += 4.0
+    if is_table_url:
+        bonus += 2.5
+    if "full-time, four-year program" in section:
+        bonus += 8.0
+    if "full-time, five-year co-op program" in section:
+        bonus += 2.0
     if any(label in section for label in ("table i", "table ii", "required group", "core elective")):
-        bonus += 3.0
+        bonus += 2.5
+    if requested_year and _matches_requested_year(chunk, section, requested_year):
+        bonus += 8.0
     if "academic year:" in chunk and "program:" in chunk:
         bonus += 2.0
     if any(noisy in url for noisy in (
@@ -174,6 +199,40 @@ def _course_planning_bonus(query: str, cand: Dict[str, Any], use_rerank: bool = 
     return bonus * (0.5 if use_rerank else 1.0)
 
 
+def _program_requirements_bonus(query: str, cand: Dict[str, Any], use_rerank: bool = False) -> float:
+    if not _is_program_requirements_query(query):
+        return 0.0
+
+    url = (cand.get("chunk_url") or cand.get("source_url") or "").lower()
+    section = (cand.get("section") or "").lower()
+    chunk = (cand.get("chunk") or "").lower()
+    slug_hint = _program_slug_hint(query)
+
+    bonus = 0.0
+    is_calendar_program = "/calendar/" in url and "/programs/arts/" in url
+    is_table_url = url.rstrip("/").endswith("/table_i") or url.rstrip("/").endswith("/table_ii")
+    is_main_program_url = is_calendar_program and not is_table_url
+
+    if is_calendar_program:
+        bonus += 3.0
+    if slug_hint and f"/{slug_hint}" in url:
+        bonus += 7.0
+    if is_main_program_url:
+        bonus += 7.0
+    if "full-time, four-year program" in section:
+        bonus += 10.0
+    if any(term in chunk for term in ("1st & 2nd semester", "3rd & 4th semester", "5th & 6th semester", "7th & 8th semester")):
+        bonus += 10.0
+    if any(term in section for term in ("required", "required group", "liberal studies", "open elective", "core elective")):
+        bonus += 3.0
+    if is_table_url:
+        bonus += 2.0
+    if "program overview/curriculum information" in section:
+        bonus -= 1.0
+
+    return bonus * (0.5 if use_rerank else 1.0)
+
+
 def _apply_query_specific_boosts(query: str, candidates: List[Dict[str, Any]], use_rerank: bool = False) -> List[Dict[str, Any]]:
     if not candidates:
         return candidates
@@ -183,6 +242,7 @@ def _apply_query_specific_boosts(query: str, candidates: List[Dict[str, Any]], u
         base = float(cand.get(score_key) or 0.0)
         bonus = _program_list_bonus(query, cand, use_rerank=use_rerank)
         bonus += _course_planning_bonus(query, cand, use_rerank=use_rerank)
+        bonus += _program_requirements_bonus(query, cand, use_rerank=use_rerank)
         cand["query_bonus"] = bonus
         cand["adjusted_score"] = base + bonus
 
@@ -298,6 +358,7 @@ def _table_bias(policy: RetrievalPolicy, url: str, section: str, chunk: str, sca
     other_program = _is_other_arts_calendar_program_url(url, policy.program_slug, slug_aliases)
     is_table_url = url.endswith('/table_i') or url.endswith('/table_ii')
     year_match = _matches_requested_year(chunk, section, requested_year)
+    has_semester_row = any(term in chunk for term in ('1st & 2nd semester', '3rd & 4th semester', '5th & 6th semester', '7th & 8th semester'))
 
     if exact_program:
         bonus += 8.0 * scale
@@ -307,35 +368,39 @@ def _table_bias(policy: RetrievalPolicy, url: str, section: str, chunk: str, sca
         bonus -= 13.0 * scale
 
     if exact_program and is_table_url:
-        bonus += 16.0 * scale
+        bonus += 6.0 * scale
     elif is_table_url and other_program:
         bonus -= 8.0 * scale
 
     if exact_program and 'full-time, four-year program' in section:
-        bonus += 7.0 * scale
+        bonus += 12.0 * scale
         if year_match:
-            bonus += 8.0 * scale
+            bonus += 12.0 * scale
+    if exact_program and has_semester_row:
+        bonus += 10.0 * scale
     if exact_program and 'full-time, five-year co-op program' in section:
-        bonus -= 6.0 * scale if policy.label == 'COURSE_PLANNING_CALENDAR' else 1.5 * scale
-    if exact_program and any(term in section for term in ('required group', 'core elective', 'table i', 'table ii')):
-        bonus += 8.0 * scale
+        bonus -= 6.0 * scale if policy.label == 'COURSE_PLANNING_CALENDAR' else 2.0 * scale
+    if exact_program and any(term in section for term in ('required group', 'core elective', 'table i', 'table ii', 'liberal studies', 'open elective')):
+        bonus += 6.0 * scale
         if year_match:
-            bonus += 6.0 * scale
+            bonus += 4.0 * scale
 
     if policy.label == 'COURSE_PLANNING_CALENDAR':
         if exact_program and 'program overview/curriculum information' in section:
-            bonus -= 8.0 * scale if requested_year else 5.0 * scale
+            bonus -= 9.0 * scale if requested_year else 5.0 * scale
         if 'academic year:' in chunk and 'program:' in chunk and exact_program:
             bonus += 2.0 * scale
         if exact_program and year_match:
-            bonus += 10.0 * scale
+            bonus += 12.0 * scale
         if requested_year and exact_program and not year_match and not is_table_url and 'full-time, four-year program' not in section:
-            bonus -= 3.0 * scale
+            bonus -= 4.0 * scale
     else:
         if exact_program and 'program overview/curriculum information' in section:
-            bonus += 1.0 * scale
+            bonus -= 1.0 * scale
         if exact_program and year_match:
-            bonus += 5.0 * scale
+            bonus += 6.0 * scale
+        if exact_program and 'full-time, four-year program' in section:
+            bonus += 6.0 * scale
 
     return bonus
 

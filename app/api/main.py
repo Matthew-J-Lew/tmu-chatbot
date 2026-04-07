@@ -56,6 +56,7 @@ from app.api.session_store import clear_session_state, load_session_state, save_
 from app.api.turn_prep import TurnPrepResult, prepare_turn
 from app.api.retrieval_policy import RetrievalPolicy, choose_retrieval_policy
 from app.api.canonical_facts import maybe_answer_canonical_finite_question
+from app.api.answer_style import build_answer_system_instructions
 
 from app.rag.retrieval import retrieve
 
@@ -107,6 +108,67 @@ if _WIDGET_DIR.exists():
 
 # Concurrency limiter: prevents too many simultaneous LLM calls (stabilizes latency)
 _llm_semaphore = asyncio.Semaphore(MAX_CONCURRENT_LLM)
+
+
+_CURRICULUM_LABELS = {
+    "COURSE_PLANNING_CALENDAR",
+    "PROGRAM_REQUIREMENTS_CALENDAR",
+}
+
+_CURRICULUM_EXTRA_SECTION_PATTERNS = (
+    r"^#{1,6}\s+summary(?: of [^\n]+)?\s*$",
+    r"^#{1,6}\s+notes(?: on [^\n]+)?\s*$",
+    r"^#{1,6}\s+references\s*$",
+    r"^\*\*references:?\*\*\s*$",
+)
+
+
+def _strip_markdown_sections(answer: str, heading_patterns: tuple[str, ...]) -> str:
+    lines = answer.splitlines()
+    kept: list[str] = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        stripped = line.strip()
+        if any(re.match(pattern, stripped, flags=re.IGNORECASE) for pattern in heading_patterns):
+            i += 1
+            while i < len(lines):
+                nxt = lines[i].strip()
+                if re.match(r"^#{1,6}\s+", nxt):
+                    break
+                if re.match(r"^\*\*[^*][^\n]*:\*\*\s*$", nxt):
+                    break
+                i += 1
+            continue
+        kept.append(line)
+        i += 1
+    text = "\n".join(kept)
+    text = re.sub(r"\n{3,}", "\n\n", text).strip()
+    return text
+
+
+def _postprocess_answer(answer: str, question: str, policy: Optional[RetrievalPolicy] = None) -> str:
+    cleaned = (answer or "").strip()
+    if not cleaned:
+        return cleaned
+
+    label = (policy.label if policy else "") or ""
+    if label in _CURRICULUM_LABELS:
+        has_semester_headings = sum(
+            1
+            for marker in (
+                "1st & 2nd semester",
+                "3rd & 4th semester",
+                "5th & 6th semester",
+                "7th & 8th semester",
+            )
+            if marker in cleaned.lower()
+        ) >= 2
+        if has_semester_headings:
+            cleaned = _strip_markdown_sections(cleaned, _CURRICULUM_EXTRA_SECTION_PATTERNS)
+        cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+
+    return cleaned
 
 
 # -----------------------------
@@ -322,6 +384,58 @@ def _canonical_source_key(url: str, section: Optional[str]) -> str:
     return (url or '').strip().lower().rstrip('/')
 
 
+_CITATION_BLOCK_RE = re.compile(r'(?:\[(?:\d+(?:\s*,\s*\d+)*)\])+')
+
+
+def _extract_citation_numbers(text: str) -> list[int]:
+    return [int(value) for value in re.findall(r'\d+', text or '')]
+
+
+def _remap_answer_citations(answer: str, source_lookup: Dict[int, SourceItem]) -> tuple[str, List[SourceItem]]:
+    """Keep only cited sources and renumber them contiguously by first appearance.
+
+    Multiple cited chunks from the same canonical page collapse into one displayed
+    source number so the user sees only sources the answer actually used.
+    """
+    if not answer:
+        return '', []
+
+    displayed_sources: List[SourceItem] = []
+    display_id_by_key: Dict[str, int] = {}
+
+    def ensure_display_id(raw_id: int) -> Optional[int]:
+        src = source_lookup.get(raw_id)
+        if not src:
+            return None
+        key = _canonical_source_key(src.url, src.section)
+        if key in display_id_by_key:
+            return display_id_by_key[key]
+        display_id = len(displayed_sources) + 1
+        display_id_by_key[key] = display_id
+        displayed_sources.append(SourceItem(id=display_id, url=src.url, title=src.title, section=src.section))
+        return display_id
+
+    def replace_block(match: re.Match[str]) -> str:
+        raw_ids = _extract_citation_numbers(match.group(0))
+        display_ids: list[int] = []
+        seen: set[int] = set()
+        for raw_id in raw_ids:
+            display_id = ensure_display_id(raw_id)
+            if display_id is None or display_id in seen:
+                continue
+            seen.add(display_id)
+            display_ids.append(display_id)
+        if not display_ids:
+            return ''
+        return ''.join(f'[{display_id}]' for display_id in display_ids)
+
+    rewritten = _CITATION_BLOCK_RE.sub(replace_block, answer)
+    rewritten = re.sub(r'[ \t]+\n', '\n', rewritten)
+    rewritten = re.sub(r'\n{3,}', '\n\n', rewritten)
+    rewritten = re.sub(r'\s+([,.;:!?])', r'\1', rewritten)
+    return rewritten.strip(), displayed_sources
+
+
 def _is_curriculum_answer_question(question: str) -> bool:
     q = normalize_question(question)
     return any(token in q for token in (
@@ -340,8 +454,8 @@ def _is_curriculum_answer_question(question: str) -> bool:
 
 
 def build_messages_and_sources(
-    question: str, chunks: List[Dict[str, Any]]
-) -> tuple[List[Dict[str, str]], List[SourceItem]]:
+    question: str, chunks: List[Dict[str, Any]], policy: Optional[RetrievalPolicy] = None
+) -> tuple[List[Dict[str, str]], Dict[int, SourceItem]]:
     """
     Build a strict prompt with numbered context passages.
 
@@ -349,9 +463,8 @@ def build_messages_and_sources(
     - Smaller prompt => faster inference.
     So we cap chunk text length and total context length.
     """
-    sources: List[SourceItem] = []
+    source_lookup: Dict[int, SourceItem] = {}
     context_lines: List[str] = []
-    seen_sources: set[tuple[str, str]] = set()
 
     total_chars = 0
     for i, c in enumerate(chunks, start=1):
@@ -359,7 +472,6 @@ def build_messages_and_sources(
         section = c.get("section")
         chunk_text = (c.get("chunk") or "").strip()
 
-        # Per-chunk cap
         if len(chunk_text) > MAX_CHUNK_CHARS:
             chunk_text = chunk_text[:MAX_CHUNK_CHARS].rstrip() + "…"
 
@@ -370,27 +482,10 @@ def build_messages_and_sources(
         total_chars += len(block)
         context_lines.append(block)
 
-        source_key = _canonical_source_key(url, section)
-        if source_key not in seen_sources:
-            seen_sources.add(source_key)
-            sources.append(SourceItem(id=len(sources) + 1, url=url, title=url, section=section))
+        source_title = (c.get("source_title") or c.get("title") or url or "Official TMU source").strip()
+        source_lookup[i] = SourceItem(id=i, url=url, title=source_title, section=section)
 
-    system_instructions = (
-        "You are a helpful assistant for Toronto Metropolitan University's Faculty of Arts.\n"
-        "Answer the user's question using ONLY the context passages provided.\n"
-        "If the answer is not in the context, say you do not know.\n"
-        "Do not guess or invent details.\n"
-        "When you state a fact, cite it using [1], [2], etc.\n"
-        "Keep the answer concise and factual.\n"
-    )
-
-    if _is_curriculum_answer_question(question):
-        system_instructions += (
-            "For curriculum and course-planning questions, rely on the exact single-program year-specific curriculum evidence.\n"
-            "Prefer exact semester rows, Full-Time Four-Year Program rows, and exact Table I/II or Required Group sections over general overview prose.\n"
-            "Do not combine requirements from sibling or double-major programs.\n"
-            "Only list a course, table, or requirement group when it is explicitly supported by the provided context. If the exact year-specific evidence is incomplete, say so.\n"
-        )
+    system_instructions = build_answer_system_instructions(question, policy)
 
     user_content = (
         f"USER QUESTION:\n{question}\n\n"
@@ -403,7 +498,7 @@ def build_messages_and_sources(
         {"role": "user", "content": user_content},
     ]
 
-    return messages, sources
+    return messages, source_lookup
 
 
 async def prepare_session_turn(question: str, session_id: Optional[str]) -> TurnPrepResult:
@@ -533,7 +628,7 @@ async def chat(req: ChatRequest) -> ChatResponse:
 
     # ---- Prompt building ----
     start_prompt = perf_counter()
-    messages, sources = build_messages_and_sources(effective_q, chunks)
+    messages, source_lookup = build_messages_and_sources(effective_q, chunks, policy=policy)
     prompt_ms = int((perf_counter() - start_prompt) * 1000)
 
     # ---- LLM call (rate-limited) ----
@@ -546,12 +641,13 @@ async def chat(req: ChatRequest) -> ChatResponse:
 
     llm_ms = int((perf_counter() - start_llm) * 1000)
 
-    answer = redact_pii(raw).strip()
+    answer = _postprocess_answer(redact_pii(raw).strip(), effective_q, policy=policy)
+    answer, used_sources = _remap_answer_citations(answer, source_lookup)
     total_ms = int((perf_counter() - start_total) * 1000)
 
     payload = {
         "answer": answer,
-        "sources": [s.dict() for s in sources],
+        "sources": [s.dict() for s in used_sources],
         "latency_ms": total_ms,
         "timings": {
             "cache_ms": cache_ms,
@@ -630,7 +726,7 @@ async def admin_chat(req: AdminChatRequest) -> AdminChatResponse:
 
     # ---- Prompt building ----
     start_prompt = perf_counter()
-    messages, sources = build_messages_and_sources(effective_q, chunks)
+    messages, source_lookup = build_messages_and_sources(effective_q, chunks, policy=policy)
     prompt_ms = int((perf_counter() - start_prompt) * 1000)
 
     # ---- LLM call (rate-limited) ----
@@ -642,7 +738,8 @@ async def admin_chat(req: AdminChatRequest) -> AdminChatResponse:
             raise HTTPException(status_code=502, detail=f"LLM request failed: {e}")
     llm_ms = int((perf_counter() - start_llm) * 1000)
 
-    answer = redact_pii(raw).strip()
+    answer = _postprocess_answer(redact_pii(raw).strip(), effective_q, policy=policy)
+    answer, used_sources = _remap_answer_citations(answer, source_lookup)
     total_ms = int((perf_counter() - start_total) * 1000)
 
     # Debug retrieval items
@@ -669,7 +766,7 @@ async def admin_chat(req: AdminChatRequest) -> AdminChatResponse:
 
     payload = {
         "answer": answer,
-        "sources": [s.dict() for s in sources],
+        "sources": [s.dict() for s in used_sources],
         "latency_ms": total_ms,
         "timings": {
             "cache_ms": 0,
@@ -730,7 +827,7 @@ async def chat_stream(req: ChatRequest):
 
     pool = get_pool()
     chunks = await retrieve(pool=pool, query=(policy.retrieval_query or effective_q), k=RAG_TOP_K, num_candidates=RAG_NUM_CANDIDATES, policy=policy)
-    messages, _sources = build_messages_and_sources(effective_q, chunks)
+    messages, _source_lookup = build_messages_and_sources(effective_q, chunks, policy=policy)
 
     async def _iter():
         async with _llm_semaphore:

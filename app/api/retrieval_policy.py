@@ -221,6 +221,7 @@ def _is_academic_standing_question(q: str) -> bool:
         "fail a course", "failed a course", "what happens if i fail", "if i fail a class",
         "academic probation", "academic standing", "grades and standings", "on probation",
         "i am on probation", "im on probation", "i'm on probation",
+        "will i be kicked out", "kicked out of tmu", "dismissed from tmu",
     ))
 
 
@@ -306,13 +307,17 @@ def _calendar_policy(label: str, effective_question: str, slug: str, *, slug_ali
 
     if label == "COURSE_PLANNING_CALENDAR":
         preferred_sections = [
-            "table i",
-            "table ii",
+            "full-time, four-year program",
+            "1st & 2nd semester",
+            "3rd & 4th semester",
+            "5th & 6th semester",
+            "7th & 8th semester",
             "required group",
             "core elective",
-            "full-time, four-year program",
             "liberal studies",
             "open electives",
+            "table i",
+            "table ii",
         ]
         discouraged_sections = ["program overview/curriculum information"]
         if prefer_coop:
@@ -323,13 +328,17 @@ def _calendar_policy(label: str, effective_question: str, slug: str, *, slug_ali
     else:
         preferred_sections = [
             "full-time, four-year program",
-            "program overview/curriculum information",
+            "1st & 2nd semester",
+            "3rd & 4th semester",
+            "5th & 6th semester",
+            "7th & 8th semester",
+            "required group",
+            "liberal studies",
+            "open elective",
+            "core elective",
             "table i",
             "table ii",
-            "required group",
-            "core elective",
-            "liberal studies",
-            "open electives",
+            "program overview/curriculum information",
         ]
         if prefer_coop:
             preferred_sections.insert(2, "full-time, five-year co-op program")
@@ -408,7 +417,7 @@ def choose_retrieval_policy(raw_question: str, effective_question: str) -> Retri
     if _is_course_intentions_question(combined):
         return RetrievalPolicy(
             label="COURSE_INTENTIONS",
-            retrieval_query="What should a TMU student do if they miss the course intentions period? Include course intentions timing, later enrolment windows, and MyServiceHub if available.",
+            retrieval_query="What should a TMU student do if they miss the course intentions period? Focus on the default next steps, later enrolment windows, and MyServiceHub guidance.",
             preferred_urls=("/current-students/course-enrolment/course-intentions", "/current-students/course-enrolment", "/myservicehub-support/students/academics"),
             discouraged_urls=("/student-financial-assistance/", "/admissions/undergraduate/apply/"),
             same_source_limit=2,
@@ -417,7 +426,7 @@ def choose_retrieval_policy(raw_question: str, effective_question: str) -> Retri
     if _is_course_enrolment_question(combined):
         return RetrievalPolicy(
             label="COURSE_ENROLMENT",
-            retrieval_query="How do TMU students enroll in classes? Include new vs continuing student enrolment and MyServiceHub if available.",
+            retrieval_query="How do TMU students enroll in classes through MyServiceHub? Focus on the default enrolment steps for a continuing student and mention exceptions only briefly if the official pages support them.",
             preferred_urls=("/current-students/course-enrolment", "/myservicehub-support/students/academics"),
             discouraged_urls=("/student-financial-assistance/", "/admissions/undergraduate/apply/"),
             same_source_limit=2,
@@ -435,7 +444,7 @@ def choose_retrieval_policy(raw_question: str, effective_question: str) -> Retri
     if _is_course_management_question(combined):
         return RetrievalPolicy(
             label="COURSE_MANAGEMENT",
-            retrieval_query="How do TMU students add, drop, swap, or withdraw from courses in MyServiceHub?",
+            retrieval_query="How do TMU students add, drop, or swap classes in MyServiceHub? Focus on the default steps first, then mention drop deadlines or withdrawal caveats briefly if supported.",
             preferred_urls=("/myservicehub-support/students/academics", "/current-students/course-enrolment/drops-withdrawals", "/current-students/course-enrolment"),
             discouraged_urls=("/student-financial-assistance/",),
             same_source_limit=2,
@@ -444,7 +453,7 @@ def choose_retrieval_policy(raw_question: str, effective_question: str) -> Retri
     if _is_program_change_question(combined):
         return RetrievalPolicy(
             label="PROGRAM_CHANGE",
-            retrieval_query="How can a TMU student switch programs or change majors or plans? Include internal change or transfer guidance if available.",
+            retrieval_query="How can a TMU student switch programs or change majors or plans? Focus on the default internal change path first and mention transfer-specific caveats only briefly if supported.",
             preferred_urls=("/admissions/undergraduate/requirements/transfer-student", "/myservicehub-support/students/academics", "/curriculum-advising/"),
             discouraged_urls=("/student-financial-assistance/",),
             same_source_limit=2,
