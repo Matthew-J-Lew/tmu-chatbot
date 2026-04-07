@@ -244,60 +244,105 @@
   }
 
   function buildListHtml(lines, startIndex) {
-    const stack = [];
-    let html = '';
-    let i = startIndex;
-
-    function openList(type) {
-      html += `<${type} class="mdList md${type === 'ul' ? 'Ul' : 'Ol'}">`;
-      stack.push(type);
-    }
-
-    function closeTo(level) {
-      while (stack.length > level) {
-        html += '</li></' + stack.pop() + '>';
+    function nextNonEmptyIndex(fromIndex) {
+      for (let idx = fromIndex; idx < lines.length; idx += 1) {
+        if (String(lines[idx] || '').trim()) return idx;
       }
+      return -1;
     }
 
-    while (i < lines.length) {
-      const line = lines[i];
-      if (!String(line || '').trim()) break;
+    function renderContinuationHtml(parts) {
+      const filtered = parts.filter((part) => part !== null && part !== undefined && String(part) !== '');
+      if (!filtered.length) return '';
+      return `<div class="mdListContinuation">${filtered.join('<br>')}</div>`;
+    }
 
-      const item = parseListMarker(line);
-      if (!item) break;
+    function parseListBlock(index, baseIndent) {
+      const first = parseListMarker(lines[index]);
+      if (!first) return { html: '', nextIndex: index };
 
-      const level = Math.floor(item.indent / 2);
+      const listType = first.type;
+      let html = `<${listType} class="mdList md${listType === 'ul' ? 'Ul' : 'Ol'}">`;
+      let i = index;
 
-      if (!stack.length) {
-        openList(item.type);
-        html += '<li>' + renderInlineMarkdownHtml(item.content.trim());
+      while (i < lines.length) {
+        while (i < lines.length && !String(lines[i] || '').trim()) {
+          const lookahead = nextNonEmptyIndex(i + 1);
+          if (lookahead < 0) {
+            i = lines.length;
+            break;
+          }
+          const nextMarker = parseListMarker(lines[lookahead]);
+          if (!nextMarker || nextMarker.indent < baseIndent) break;
+          i = lookahead;
+        }
+
+        if (i >= lines.length) break;
+
+        const marker = parseListMarker(lines[i]);
+        if (!marker || marker.indent !== baseIndent || marker.type !== listType) break;
+
+        let itemHtml = renderInlineMarkdownHtml(marker.content.trim());
         i += 1;
-        continue;
+
+        const continuationParts = [];
+
+        while (i < lines.length) {
+          const currentLine = lines[i];
+          const trimmed = String(currentLine || '').trim();
+
+          if (!trimmed) {
+            const lookahead = nextNonEmptyIndex(i + 1);
+            if (lookahead < 0) {
+              i = lines.length;
+              break;
+            }
+            const nextMarker = parseListMarker(lines[lookahead]);
+            if (nextMarker) {
+              if (nextMarker.indent > baseIndent) {
+                i = lookahead;
+                continue;
+              }
+              if (nextMarker.indent <= baseIndent) {
+                i = lookahead;
+                break;
+              }
+            }
+            continuationParts.push('');
+            i = lookahead;
+            continue;
+          }
+
+          const nextMarker = parseListMarker(currentLine);
+          if (nextMarker) {
+            if (nextMarker.indent > baseIndent) {
+              itemHtml += renderContinuationHtml(continuationParts);
+              continuationParts.length = 0;
+              const nested = parseListBlock(i, nextMarker.indent);
+              itemHtml += nested.html;
+              i = nested.nextIndex;
+              continue;
+            }
+            if (nextMarker.indent <= baseIndent) {
+              break;
+            }
+          }
+
+          continuationParts.push(renderInlineMarkdownHtml(trimmed));
+          i += 1;
+        }
+
+        itemHtml += renderContinuationHtml(continuationParts);
+        html += `<li>${itemHtml}</li>`;
       }
 
-      if (level > stack.length - 1) {
-        openList(item.type);
-        html += '<li>' + renderInlineMarkdownHtml(item.content.trim());
-        i += 1;
-        continue;
-      }
-
-      closeTo(level + 1);
-
-      const currentType = stack[stack.length - 1];
-      if (currentType !== item.type) {
-        html += `</li></${stack.pop()}>`;
-        openList(item.type);
-      } else {
-        html += '</li>';
-      }
-
-      html += '<li>' + renderInlineMarkdownHtml(item.content.trim());
-      i += 1;
+      html += `</${listType}>`;
+      return { html, nextIndex: i };
     }
 
-    closeTo(0);
-    return { html, nextIndex: i };
+    const firstItem = parseListMarker(lines[startIndex]);
+    if (!firstItem) return { html: '', nextIndex: startIndex + 1 };
+    return parseListBlock(startIndex, firstItem.indent);
   }
 
   function renderAssistantMarkdown(text) {

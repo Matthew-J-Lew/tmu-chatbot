@@ -152,6 +152,9 @@ def _postprocess_answer(answer: str, question: str, policy: Optional[RetrievalPo
     if not cleaned:
         return cleaned
 
+    cleaned = _strip_trailing_reference_material(cleaned)
+    cleaned = _strip_mdtoken_leaks(cleaned)
+
     label = (policy.label if policy else "") or ""
     if label in _CURRICULUM_LABELS:
         has_semester_headings = sum(
@@ -166,8 +169,10 @@ def _postprocess_answer(answer: str, question: str, policy: Optional[RetrievalPo
         ) >= 2
         if has_semester_headings:
             cleaned = _strip_markdown_sections(cleaned, _CURRICULUM_EXTRA_SECTION_PATTERNS)
-        cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
 
+    cleaned = _strip_trailing_reference_material(cleaned)
+    cleaned = _strip_mdtoken_leaks(cleaned)
+    cleaned = _cleanup_citation_leftovers(cleaned)
     return cleaned
 
 
@@ -385,6 +390,52 @@ def _canonical_source_key(url: str, section: Optional[str]) -> str:
 
 
 _CITATION_BLOCK_RE = re.compile(r'(?:\[(?:\d+(?:\s*,\s*\d+)*)\])+')
+_TRAILING_REFERENCE_BLOCK_RE = re.compile(
+    r'(?:\n|^)\s*(?:#{1,6}\s*(?:references?|sources?|citations?)\b[^\n]*|\*\*(?:references?|sources?|citations?)\*\*\s*:?(?:\s*)|(?:references?|sources?|citations?)\s*:)[\s\S]*$',
+    re.IGNORECASE,
+)
+_MDTOKEN_RE = re.compile(r'__?MDTOKEN[_-]?\d+__?', re.IGNORECASE)
+_ORPHAN_REFERENCE_LINE_RE = re.compile(r'^\s*(?:references?|sources?|citations?)\s*:?\s*$', re.IGNORECASE)
+
+
+def _strip_trailing_reference_material(text: str) -> str:
+    cleaned = text or ''
+    prev = None
+    while cleaned != prev:
+        prev = cleaned
+        cleaned = _TRAILING_REFERENCE_BLOCK_RE.sub('', cleaned).rstrip()
+    return cleaned
+
+
+def _strip_mdtoken_leaks(text: str) -> str:
+    cleaned = _MDTOKEN_RE.sub('', text or '')
+    cleaned = re.sub(r'(?m)^\s*(?:references?|sources?|citations?)\s*:\s*[,;:._\- ]*$', '', cleaned, flags=re.IGNORECASE)
+    kept: list[str] = []
+    for raw_line in cleaned.splitlines():
+        line = re.sub(r'\s{2,}', ' ', raw_line).rstrip()
+        if _ORPHAN_REFERENCE_LINE_RE.match(line):
+            continue
+        if not line.strip() and (_MDTOKEN_RE.search(raw_line) or _ORPHAN_REFERENCE_LINE_RE.match(raw_line)):
+            continue
+        kept.append(line)
+    cleaned = '\n'.join(kept)
+    cleaned = re.sub(r'(?m)^\s*[,;:._\-]+\s*$', '', cleaned)
+    return cleaned
+
+
+def _cleanup_citation_leftovers(text: str) -> str:
+    cleaned = text or ''
+    cleaned = re.sub(r'\[\s*\]', '', cleaned)
+    cleaned = re.sub(
+        r'((?:\[\d+\])+)',
+        lambda m: ''.join(f'[{n}]' for n in dict.fromkeys(int(v) for v in re.findall(r'\d+', m.group(1)))),
+        cleaned,
+    )
+    cleaned = re.sub(r'(?m)^\s*(?:references?|sources?|citations?)\s*:\s*$', '', cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r'[ \t]+\n', '\n', cleaned)
+    cleaned = re.sub(r'\n{3,}', '\n\n', cleaned)
+    cleaned = re.sub(r'\s+([,.;:!?])', r'\1', cleaned)
+    return cleaned.strip()
 
 
 def _extract_citation_numbers(text: str) -> list[int]:
@@ -434,6 +485,16 @@ def _remap_answer_citations(answer: str, source_lookup: Dict[int, SourceItem]) -
     rewritten = re.sub(r'\n{3,}', '\n\n', rewritten)
     rewritten = re.sub(r'\s+([,.;:!?])', r'\1', rewritten)
     return rewritten.strip(), displayed_sources
+
+
+def _finalize_answer_after_citation_remap(answer: str) -> str:
+    cleaned = (answer or '').strip()
+    if not cleaned:
+        return cleaned
+    cleaned = _strip_trailing_reference_material(cleaned)
+    cleaned = _strip_mdtoken_leaks(cleaned)
+    cleaned = _cleanup_citation_leftovers(cleaned)
+    return cleaned
 
 
 def _is_curriculum_answer_question(question: str) -> bool:
@@ -643,6 +704,7 @@ async def chat(req: ChatRequest) -> ChatResponse:
 
     answer = _postprocess_answer(redact_pii(raw).strip(), effective_q, policy=policy)
     answer, used_sources = _remap_answer_citations(answer, source_lookup)
+    answer = _finalize_answer_after_citation_remap(answer)
     total_ms = int((perf_counter() - start_total) * 1000)
 
     payload = {
@@ -740,6 +802,7 @@ async def admin_chat(req: AdminChatRequest) -> AdminChatResponse:
 
     answer = _postprocess_answer(redact_pii(raw).strip(), effective_q, policy=policy)
     answer, used_sources = _remap_answer_citations(answer, source_lookup)
+    answer = _finalize_answer_after_citation_remap(answer)
     total_ms = int((perf_counter() - start_total) * 1000)
 
     # Debug retrieval items

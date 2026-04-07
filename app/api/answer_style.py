@@ -95,6 +95,8 @@ def build_answer_system_instructions(question: str, policy: Optional[RetrievalPo
         "Use simple markdown that renders cleanly in chat: short paragraphs, short bullet lists, and numbered steps when useful. Do not use tables.",
         "Keep the answer student-facing, clear, and concise.",
         "Every factual claim must include citations like [1] or [2]. Cite only the numbered context passages that directly support the claim, reuse the same number when referring to the same source again, and never invent citation numbers.",
+        "Use inline numeric citations only. Never add a References, Sources, Citations, Further Reading, or Links section at the end of the answer.",
+        "Never output raw citation placeholder tokens such as MDTOKEN or internal markup tokens.",
     ]
 
     if label in _CURRICULUM_LABELS:

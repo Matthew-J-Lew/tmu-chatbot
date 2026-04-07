@@ -57,6 +57,7 @@ st_mod.SentenceTransformer = DummySentenceTransformer
 st_mod.CrossEncoder = DummyCrossEncoder
 sys.modules.setdefault("sentence_transformers", st_mod)
 
+from app.api.answer_style import build_answer_system_instructions
 from app.api.main import (
     _postprocess_answer,
     _remap_answer_citations,
@@ -169,3 +170,19 @@ def test_postprocess_curriculum_answer_removes_summary_notes_and_references_sect
     assert "**References:**" not in cleaned
     assert "1st & 2nd Semester Requirements" in cleaned
     assert "3rd & 4th Semester Requirements" in cleaned
+
+
+def test_postprocess_removes_trailing_reference_sections_and_mdtoken_leaks_for_non_curriculum_answers():
+    answer = """Follow these steps [1][2].
+
+References: __MDTOKEN0, MDTOKEN1, MDTOKEN_2__
+"""
+
+    cleaned = _postprocess_answer(answer, "How do I enroll in classes?", policy=None)
+    assert cleaned == "Follow these steps [1][2]."
+
+
+def test_answer_style_explicitly_forbids_reference_blocks_and_placeholder_tokens():
+    instructions = build_answer_system_instructions("How do I enroll in classes?", policy=None)
+    assert "Never add a References, Sources, Citations" in instructions
+    assert "Never output raw citation placeholder tokens such as MDTOKEN" in instructions
