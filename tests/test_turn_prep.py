@@ -344,3 +344,51 @@ def test_chang_school_question_is_not_hijacked_by_previous_topic_or_follow_up_lo
     assert result.state_after.last_intent == "CHANG_SCHOOL_CREDIT"
     assert result.effective_question == "Can I take a class at the Chang School? Will it count towards my degree?"
     assert "Prior topic:" not in result.effective_question
+
+
+def test_join_a_class_wording_reaches_rag_instead_of_fallback():
+    state = SessionState(session_id="abc")
+    result = prepare_turn("abc", "Hi im matthew how do i join a class", state)
+
+    assert result.workflow_reply is None
+    assert result.state_after.last_intent == "COURSE_ENROLMENT"
+
+
+def test_join_tmu_wording_routes_to_admissions():
+    state = SessionState(session_id="abc")
+    result = prepare_turn("abc", "Hello! I want to join TMU", state)
+
+    assert result.workflow_reply is None
+    assert result.state_after.last_intent == "ADMISSIONS"
+
+
+def test_faculty_of_arts_question_reaches_rag():
+    state = SessionState(session_id="abc")
+    result = prepare_turn("abc", "What is the Faculty of Arts", state)
+
+    assert result.workflow_reply is None
+    assert result.state_after.last_intent == "FACULTY_OF_ARTS_OVERVIEW"
+
+
+def test_broad_tmu_question_gets_scope_clarification_not_fallback():
+    state = SessionState(session_id="abc")
+    result = prepare_turn("abc", "Can you tell me about TMU", state)
+
+    assert result.workflow_reply == turn_prep._IN_SCOPE_CLARIFICATION_REPLY
+    assert result.state_after.last_effective_question is None
+
+
+def test_public_opinion_question_gets_official_scope_reply():
+    state = SessionState(session_id="abc")
+    result = prepare_turn("abc", "what do people say about tmu", state)
+
+    assert result.workflow_reply == turn_prep._OFFICIAL_INFO_LIMITATION_REPLY
+    assert result.state_after.last_effective_question is None
+
+
+def test_chang_enrolment_question_reaches_rag():
+    state = SessionState(session_id="abc")
+    result = prepare_turn("abc", "how can i add a chang class", state)
+
+    assert result.workflow_reply is None
+    assert result.state_after.last_intent == "CHANG_ENROLMENT"

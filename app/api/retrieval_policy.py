@@ -51,6 +51,17 @@ def _normalize(text: str) -> str:
     text = text.strip().lower()
     text = text.replace("&", " and ")
     text = re.sub(r"[^a-z0-9]+", " ", text)
+    text = re.sub(r"\bjoin (a|the)? ?class\b", "enroll in a class", text)
+    text = re.sub(r"\bjoin (a|the)? ?course\b", "enroll in a course", text)
+    text = re.sub(r"\bjoin classes\b", "enroll in classes", text)
+    text = re.sub(r"\bjoin courses\b", "enroll in courses", text)
+    text = re.sub(r"\bjoin tmu\b", "apply to tmu", text)
+    text = re.sub(r"\bjoin the university\b", "apply to tmu", text)
+    text = re.sub(r"\bregister for (a )?class\b", "enroll in a class", text)
+    text = re.sub(r"\bregister for (a )?course\b", "enroll in a course", text)
+    text = re.sub(r"\bregister for classes\b", "enroll in classes", text)
+    text = re.sub(r"\bregister for courses\b", "enroll in courses", text)
+    text = re.sub(r"\bchang\b", "chang school", text)
     return re.sub(r"\s+", " ", text).strip()
 
 
@@ -143,6 +154,7 @@ def _is_course_enrolment_question(q: str) -> bool:
         "enroll in classes", "enrol in classes", "enroll in a course", "enrol in a course",
         "enroll in courses", "enrol in courses", "sign up for classes", "sign up for courses",
         "class enrollment", "class enrolment", "course enrollment", "course enrolment",
+        "register for classes", "register for courses", "get into a class", "get into a course",
     ))
 
 
@@ -153,7 +165,8 @@ def _is_waitlist_question(q: str) -> bool:
 def _is_course_management_question(q: str) -> bool:
     return any(phrase in q for phrase in (
         "add drop or swap", "add drop swap", "add drop or withdraw", "add a class",
-        "drop a class", "drop a course", "drop or swap", "swap classes", "swap courses",
+        "add a course", "add classes", "add courses", "drop a class", "drop a course",
+        "drop or swap", "swap classes", "swap courses",
         "swap a class", "swap a course", "withdraw from a class", "withdraw from a course",
     ))
 
@@ -282,6 +295,42 @@ def _is_chang_school_credit_question(q: str) -> bool:
     )
 
 
+def _is_chang_school_enrolment_question(q: str) -> bool:
+    return "chang school" in q and any(
+        phrase in q for phrase in (
+            "enroll in a class", "enroll in a course", "enroll in classes", "enroll in courses",
+            "enrol in a class", "enrol in a course", "enrol in classes", "enrol in courses",
+            "add a class", "add a course", "add classes", "add courses",
+            "how to enroll", "how to enrol", "how do i enroll", "how do i enrol",
+            "how can i add", "join a class", "join a course",
+        )
+    )
+
+
+def _is_admissions_question(q: str) -> bool:
+    return any(
+        phrase in q for phrase in (
+            "apply to tmu", "apply to the university", "admission", "admissions", "application",
+            "requirements to apply", "transfer student", "transfer to tmu",
+        )
+    )
+
+
+def _is_faculty_of_arts_overview_question(q: str) -> bool:
+    return any(
+        phrase in q for phrase in (
+            "what is the faculty of arts", "what is faculty of arts",
+            "tell me about the faculty of arts", "tell me about faculty of arts",
+            "can you tell me about the faculty of arts", "can you tell me about faculty of arts",
+            "what can you tell me about the faculty of arts", "what can you tell me about faculty of arts",
+        )
+    )
+
+
+def _is_generic_coop_question(q: str) -> bool:
+    return any(phrase in q for phrase in ("co op", "coop", "internship", "work term", "work terms"))
+
+
 def _is_program_overview_question(q: str) -> bool:
     return any(phrase in q for phrase in (
         "what can you tell me about", "can you tell me about", "tell me about",
@@ -372,6 +421,7 @@ def choose_retrieval_policy(raw_question: str, effective_question: str) -> Retri
     eff = _normalize(effective_question)
     combined = f"{raw} || {eff}"
     program_slug = _extract_program_slug(raw_question, effective_question)
+    raw_only = raw
     program_slug_aliases = _program_slug_aliases(raw_question, effective_question)
     study_year = _extract_study_year(raw_question, effective_question)
 
@@ -414,11 +464,45 @@ def choose_retrieval_policy(raw_question: str, effective_question: str) -> Retri
             same_source_limit=2,
         )
 
+    if _is_faculty_of_arts_overview_question(combined):
+        return RetrievalPolicy(
+            label="FACULTY_OF_ARTS_OVERVIEW",
+            retrieval_query="What is the TMU Faculty of Arts? Provide an official overview, including what it offers and the main undergraduate areas or departments if available.",
+            preferred_urls=("/arts/", "/arts/undergraduate/programs", "/arts/about/departments"),
+            discouraged_urls=("/student-financial-assistance/", "/admissions/undergraduate/"),
+            preferred_section_terms=("faculty of arts", "undergraduate programs", "departments"),
+            same_source_limit=2,
+        )
+
+    if _is_admissions_question(combined):
+        return RetrievalPolicy(
+            label="ADMISSIONS",
+            retrieval_query="How do prospective undergraduate students apply to TMU and what admissions requirements should they check first? Prioritize the official undergraduate apply and requirements pages.",
+            preferred_urls=("/admissions/undergraduate/apply", "/admissions/undergraduate/requirements"),
+            discouraged_urls=("/student-financial-assistance/", "/current-students/course-enrolment/"),
+            preferred_section_terms=("apply", "admissions requirements", "undergraduate"),
+            same_source_limit=2,
+        )
+
     if _is_course_intentions_question(combined):
         return RetrievalPolicy(
             label="COURSE_INTENTIONS",
             retrieval_query="What should a TMU student do if they miss the course intentions period? Focus on the default next steps, later enrolment windows, and MyServiceHub guidance.",
             preferred_urls=("/current-students/course-enrolment/course-intentions", "/current-students/course-enrolment", "/myservicehub-support/students/academics"),
+            discouraged_urls=("/student-financial-assistance/", "/admissions/undergraduate/apply/"),
+            same_source_limit=2,
+        )
+
+    if _is_chang_school_enrolment_question(combined):
+        return RetrievalPolicy(
+            label="CHANG_ENROLMENT",
+            retrieval_query="How do TMU students enroll in Chang School courses? Prioritize official Chang School undergraduate-student enrolment guidance, MyServiceHub guidance, and official TMU enrolment steps.",
+            preferred_urls=(
+                "continuing.torontomu.ca/contentManagement.do?code=CM000021&method=load",
+                "continuing.torontomu.ca/contentManagement.do?code=CM000112&method=load",
+                "/current-students/course-enrolment",
+                "/myservicehub-support/students/academics",
+            ),
             discouraged_urls=("/student-financial-assistance/", "/admissions/undergraduate/apply/"),
             same_source_limit=2,
         )
@@ -464,7 +548,7 @@ def choose_retrieval_policy(raw_question: str, effective_question: str) -> Retri
             label="ADVISOR_CONTACT",
             retrieval_query="Who should a TMU Faculty of Arts student contact for academic advising? Prioritize the Faculty of Arts academic advising page and official undergraduate Arts advising contacts only.",
             preferred_urls=("/arts/undergraduate/academic-support/academic-advising", "/arts/undergraduate/academic-support"),
-            discouraged_urls=("/student-financial-assistance/", "/programs/undergraduate/", "/engineering/", "/science/", "/the-chang-school/", "/arts/about/departments"),
+            discouraged_urls=("/student-financial-assistance/", "/programs/undergraduate/", "/engineering/", "/science/", "continuing.torontomu.ca/", "/arts/about/departments"),
             preferred_section_terms=("academic advising", "contact", "undergraduate", "arts"),
             discouraged_section_terms=("engineering", "chemical engineering", "graduate", "department chair"),
             same_source_limit=1,
@@ -474,9 +558,34 @@ def choose_retrieval_policy(raw_question: str, effective_question: str) -> Retri
         return RetrievalPolicy(
             label="CHANG_SCHOOL_CREDIT",
             retrieval_query="Can TMU students take a Chang School class and have it count toward their degree? Include open elective or program requirement caveats if available.",
-            preferred_urls=("/the-chang-school/", "/curriculum-advising/curriculum-requirements/program-requirements", "/myservicehub-support/students/academics"),
+            preferred_urls=(
+                "continuing.torontomu.ca/contentManagement.do?code=CM000021&method=load",
+                "continuing.torontomu.ca/contentManagement.do?code=CM000100&method=load",
+                "continuing.torontomu.ca/contentManagement.do?code=CM000060&method=load",
+                "/curriculum-advising/curriculum-requirements/program-requirements",
+                "/myservicehub-support/students/academics",
+            ),
             discouraged_urls=("/student-financial-assistance/",),
             same_source_limit=2,
+        )
+
+    if _is_generic_coop_question(raw_only):
+        preferred_urls = ("/career-coop-student-success/career-coop", "/career-coop-student-success/career-coop/coop/", "/arts/undergraduate/programs")
+        if program_slug:
+            preferred_urls = (
+                f"/calendar/2025-2026/programs/arts/{program_slug}",
+                f"/calendar/2026-2027/programs/arts/{program_slug}",
+                "/career-coop-student-success/career-coop",
+            )
+        return RetrievalPolicy(
+            label="PROGRAM_COOP",
+            retrieval_query=effective_question if program_slug else "What co-op options are available for TMU Faculty of Arts students? Prioritize official TMU co-op pages and Faculty of Arts program pages.",
+            preferred_urls=preferred_urls,
+            discouraged_urls=("/student-financial-assistance/", "/admissions/undergraduate/"),
+            preferred_section_terms=("co-op", "co op", "work term", "internship", "eligibility"),
+            same_source_limit=2,
+            program_slug=program_slug,
+            program_slug_aliases=program_slug_aliases,
         )
 
     if _is_course_planning_question(combined) and program_slug and study_year:

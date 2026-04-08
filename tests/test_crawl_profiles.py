@@ -1,6 +1,11 @@
+import sys
+from pathlib import Path
+
+sys.path.append(str(Path(__file__).resolve().parents[1]))
+
 import os
 
-from app.crawler.crawl import load_profiles_yaml, parse_calendar_years, resolve_profile_config, url_in_scope
+from app.crawler.crawl import load_profiles_yaml, normalize_url, parse_calendar_years, resolve_profile_config, url_in_scope
 
 
 def test_parse_calendar_years_prefers_env_values():
@@ -71,3 +76,17 @@ def test_tmu_core_profile_includes_common_student_service_paths():
     assert "https://www.torontomu.ca/myservicehub-support/students/academics/" in profile["seeds"]
     assert "/current-students/course-enrolment" in profile["allowed_path_prefixes"]
     assert "/myservicehub-support/students/academics" in profile["allowed_path_prefixes"]
+
+
+def test_tmu_core_profile_includes_chang_school_seed_and_domain():
+    data = load_profiles_yaml("app/crawler/profiles.yaml")
+    profile = data["profiles"]["tmu_core"]
+    assert any("continuing.torontomu.ca" in seed for seed in profile["seeds"])
+    assert "continuing.torontomu.ca" in profile["allowed_domains"]
+    assert "/contentManagement.do" in profile["allowed_path_prefixes"]
+
+
+def test_normalize_url_preserves_stable_chang_content_identifiers_even_when_strip_query_is_true():
+    url = "https://continuing.torontomu.ca/contentManagement.do?code=CM000021&method=load&utm_source=test"
+    normalized = normalize_url(url, strip_query=True)
+    assert normalized == "https://continuing.torontomu.ca/contentManagement.do?code=CM000021&method=load"

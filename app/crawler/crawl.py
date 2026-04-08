@@ -118,10 +118,17 @@ def normalize_url(url: str, base_url: Optional[str] = None, strip_query: bool = 
         path = path[:-1]
 
     query = ""
-    if not strip_query and parsed.query:
+    preserve_query = not strip_query
+    if strip_query and netloc == "continuing.torontomu.ca" and path in {"/contentManagement.do", "/search/publicCourseAdvancedSearch.do"}:
+        preserve_query = True
+
+    if preserve_query and parsed.query:
         # Drop common tracking parameters.
         q = urllib.parse.parse_qsl(parsed.query, keep_blank_values=True)
         q = [(k, v) for (k, v) in q if not k.lower().startswith("utm_") and k.lower() not in {"fbclid"}]
+        if netloc == "continuing.torontomu.ca" and path == "/contentManagement.do":
+            keep = {"code", "method"}
+            q = [(k, v) for (k, v) in q if k in keep]
         query = urllib.parse.urlencode(sorted(q))
 
     rebuilt = urllib.parse.urlunparse((scheme, netloc, path, "", query, ""))

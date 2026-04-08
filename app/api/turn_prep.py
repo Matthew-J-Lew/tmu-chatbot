@@ -40,6 +40,8 @@ _SUPPORTED_ACADEMIC_INTENTS = {
     "CHANG_SCHOOL_CREDIT",
     "ACADEMIC_ACCOMMODATIONS",
     "MENTAL_HEALTH_SUPPORT",
+    "FACULTY_OF_ARTS_OVERVIEW",
+    "CHANG_ENROLMENT",
 }
 _PROGRAM_REQUIRED_INTENTS = {"PROGRAM_REQUIREMENTS", "PROGRAM_COOP", "PROGRAM_OVERVIEW"}
 _PROGRAM_CONTEXT_MAX_AGE = 8
@@ -65,6 +67,14 @@ _FALLBACK_REPLY = (
     "Sorry, I didn't quite understand that. I can help with Faculty of Arts programs, "
     "courses, requirements, co-op, minors, admissions, and related TMU information. "
     "Could you be more specific?"
+)
+_IN_SCOPE_CLARIFICATION_REPLY = (
+    "I can help with official TMU and Faculty of Arts information, but that question is a bit broad. "
+    "Ask about something specific like admissions, programs, enrolment, requirements, co-op, Chang School courses, or important dates."
+)
+_OFFICIAL_INFO_LIMITATION_REPLY = (
+    "I can help with official TMU and Faculty of Arts information, but I can't reliably answer general public-opinion or review questions. "
+    "Ask me about official TMU information instead, like admissions, programs, enrolment, or student services."
 )
 
 
@@ -297,8 +307,17 @@ def _classify_conversation_act(
         return ConversationAct("EMOTIONAL_REACTION")
 
     academic_intent = _classify_supported_academic_intent(question, state, detected_program)
-    if academic_intent in _SUPPORTED_ACADEMIC_INTENTS:
+    if academic_intent in _SUPPORTED_ACADEMIC_INTENTS or academic_intent == "RAG_QA":
         return ConversationAct("SUPPORTED_ACADEMIC", program=detected_program, academic_intent=academic_intent, study_year=detected_year)
+
+    if _asks_for_public_opinion(q):
+        return ConversationAct("OFFICIAL_INFO_LIMITATION", study_year=detected_year)
+
+    if _is_broad_in_scope_question(question):
+        return ConversationAct("IN_SCOPE_CLARIFICATION", study_year=detected_year)
+
+    if _looks_like_in_scope_tmu_question(question):
+        return ConversationAct("SUPPORTED_ACADEMIC", program=detected_program, academic_intent="RAG_QA", study_year=detected_year)
 
     return ConversationAct("UNSUPPORTED", study_year=detected_year)
 
@@ -415,6 +434,22 @@ def _route_conversation_act(
             reply=f"Got it - you're in {act.study_year}. What would you like to know?",
             intent_label="ACADEMIC_CONTEXT",
             preserve_context=True,
+            clear_pending_program=True,
+        )
+
+    if act.kind == "IN_SCOPE_CLARIFICATION":
+        return RoutedTurn(
+            reply=_IN_SCOPE_CLARIFICATION_REPLY,
+            intent_label="UTILITY",
+            preserve_context=False,
+            clear_pending_program=True,
+        )
+
+    if act.kind == "OFFICIAL_INFO_LIMITATION":
+        return RoutedTurn(
+            reply=_OFFICIAL_INFO_LIMITATION_REPLY,
+            intent_label="UTILITY",
+            preserve_context=False,
             clear_pending_program=True,
         )
 
@@ -591,7 +626,7 @@ def _should_clear_pending_state_for_new_turn(
     if state.pending_slot == "year" and act.study_year:
         return False
 
-    if act.kind == "UNSUPPORTED":
+    if act.kind in {"UNSUPPORTED", "IN_SCOPE_CLARIFICATION", "OFFICIAL_INFO_LIMITATION"}:
         return True
 
     if act.kind != "SUPPORTED_ACADEMIC":
@@ -676,7 +711,13 @@ def _asks_about_minor_or_certificate(q: str) -> bool:
 
 
 def _asks_about_admissions(q: str) -> bool:
-    return any(token in q for token in ("apply", "application", "admission", "admissions", "transfer", "requirements to apply"))
+    return any(
+        token in q
+        for token in (
+            "apply", "application", "admission", "admissions", "transfer", "requirements to apply",
+            "join tmu", "join the university", "get into tmu", "get into the university",
+        )
+    )
 
 
 def _asks_about_student_support(q: str) -> bool:
@@ -740,6 +781,70 @@ def _is_program_scoped(q: str) -> bool:
             "credits",
         )
     )
+
+
+def _asks_for_public_opinion(q: str) -> bool:
+    return any(
+        phrase in q
+        for phrase in (
+            "what do people say about",
+            "what do students say about",
+            "reviews of",
+            "reviews about",
+            "is tmu good",
+            "is the university good",
+            "reputation of",
+        )
+    )
+
+
+def _looks_like_in_scope_tmu_question(question: str) -> bool:
+    q = _normalize(question)
+    if not q:
+        return False
+
+    if _asks_for_public_opinion(q):
+        return False
+
+    domain_tokens = (
+        "tmu", "toronto metropolitan", "faculty of arts", "chang school", "myservicehub",
+        "course", "courses", "class", "classes", "program", "programs", "major", "minor",
+        "certificate", "co op", "coop", "admission", "admissions", "apply", "application",
+        "enroll", "enrol", "register", "waitlist", "wait list", "course intentions",
+        "academic consideration", "exam", "exams", "deadline", "advisor", "advising",
+        "gpa", "probation", "accommodation", "accommodations", "counselling", "counseling",
+    )
+    asks = (
+        q.startswith((
+            "how", "what", "when", "where", "who", "can", "do", "does", "is", "are",
+            "tell me", "give me", "i want", "i need", "help me",
+        ))
+        or "?" in question
+    )
+    return asks and any(token in q for token in domain_tokens)
+
+
+def _is_broad_in_scope_question(question: str) -> bool:
+    q = _normalize(question)
+    if not q:
+        return False
+
+    if any(
+        phrase in q
+        for phrase in (
+            "tell me about tmu",
+            "can you tell me about tmu",
+            "what can you tell me about tmu",
+            "tell me about toronto metropolitan",
+            "can you tell me about toronto metropolitan",
+            "what can you tell me about toronto metropolitan",
+        )
+    ):
+        return True
+
+    broad_heads = ("tell me about", "can you tell me about", "what can you tell me about", "what is")
+    broad_targets = ("tmu", "toronto metropolitan", "the university")
+    return q.startswith(broad_heads) and any(target in q for target in broad_targets)
 
 
 def _is_supported_follow_up(question: str) -> bool:
@@ -824,6 +929,17 @@ def _normalize(text: str) -> str:
     text = text.strip().lower()
     text = text.replace("&", " and ")
     text = re.sub(r"[^a-z0-9:()]+", " ", text)
+    text = re.sub(r"\bjoin (a|the)? ?class\b", "enroll in a class", text)
+    text = re.sub(r"\bjoin (a|the)? ?course\b", "enroll in a course", text)
+    text = re.sub(r"\bjoin classes\b", "enroll in classes", text)
+    text = re.sub(r"\bjoin courses\b", "enroll in courses", text)
+    text = re.sub(r"\bjoin tmu\b", "apply to tmu", text)
+    text = re.sub(r"\bjoin the university\b", "apply to tmu", text)
+    text = re.sub(r"\bregister for (a )?class\b", "enroll in a class", text)
+    text = re.sub(r"\bregister for (a )?course\b", "enroll in a course", text)
+    text = re.sub(r"\bregister for classes\b", "enroll in classes", text)
+    text = re.sub(r"\bregister for courses\b", "enroll in courses", text)
+    text = re.sub(r"\bchang\b", "chang school", text)
     return re.sub(r"\s+", " ", text).strip()
 
 

@@ -74,9 +74,11 @@ profiles:
       - https://www.torontomu.ca/myservicehub-support/students/academics/advisement-report/
       - https://www.torontomu.ca/calendar/2025-2026/dates/
       - https://www.torontomu.ca/calendar/2026-2027/dates/
+      - https://continuing.torontomu.ca/
     allowed_domains:
       - www.torontomu.ca
       - torontomu.ca
+      - continuing.torontomu.ca
     allowed_path_prefixes:
       - /admissions/undergraduate/apply
       - /admissions/undergraduate/requirements
@@ -88,6 +90,7 @@ profiles:
       - /myservicehub-support/students/academics
       - /calendar/2025-2026/dates
       - /calendar/2026-2027/dates
+      - /contentManagement.do
     deny_path_regex:
       - ^/admissions/undergraduate$
       - ^/admissions/undergraduate/(after-applying|admitted-students|decision-release-dates|denied-students|future-student-events|new-students)(?:/|$)
@@ -99,6 +102,7 @@ profiles:
       - ^/career-coop-student-success/news(?:/|$)
       - ^/career-coop-student-success/employers(?:/|$)
       - ^/career-coop-student-success/about(?:/|$)
+      - ^/search/publicCourseAdvancedSearch\.do(?:/|$)
       - /search
       - /site-map
       - /sitemap

@@ -147,4 +147,30 @@ def test_chang_school_credit_policy_is_selected_for_degree_credit_questions():
     policy = choose_retrieval_policy(raw, raw)
 
     assert policy.label == "CHANG_SCHOOL_CREDIT"
-    assert any("chang-school" in frag for frag in policy.preferred_urls)
+    assert any("continuing.torontomu.ca" in frag for frag in policy.preferred_urls)
+
+
+def test_chang_enrolment_policy_is_selected_for_join_and_add_phrasings():
+    for raw in (
+        "I want to join a course through Chang",
+        "How can I add a Chang class?",
+    ):
+        policy = choose_retrieval_policy(raw, raw)
+        assert policy.label == "CHANG_ENROLMENT"
+        assert any("continuing.torontomu.ca" in frag for frag in policy.preferred_urls)
+
+
+def test_admissions_policy_handles_join_tmu_wording():
+    raw = "Hello! I want to join TMU"
+    policy = choose_retrieval_policy(raw, raw)
+
+    assert policy.label == "ADMISSIONS"
+    assert any("/admissions/undergraduate/apply" in frag for frag in policy.preferred_urls)
+
+
+def test_faculty_of_arts_overview_policy_is_selected():
+    raw = "What is the Faculty of Arts?"
+    policy = choose_retrieval_policy(raw, raw)
+
+    assert policy.label == "FACULTY_OF_ARTS_OVERVIEW"
+    assert any("/arts/" in frag for frag in policy.preferred_urls)
