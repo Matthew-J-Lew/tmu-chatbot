@@ -44,6 +44,8 @@ def build_answer_system_instructions(question: str, policy: Optional[RetrievalPo
         "Put the direct answer first, then add only the most helpful supporting detail.",
         "Use simple markdown that renders cleanly in chat: short paragraphs, short bullet lists, and numbered steps when useful. Do not use tables.",
         "Keep the answer student-facing, clear, and concise.",
+        "When the retrieval focus is phrased more generically than the user's original question, keep the final answer anchored to the user's original wording, tone, and point of view.",
+        "Address the user directly with second-person phrasing such as 'you' and 'your' whenever you are giving advice or next steps.",
         "Every factual claim must include citations like [1] or [2]. Cite only the numbered context passages that directly support the claim, reuse the same number when referring to the same source again, and never invent citation numbers.",
         "Use inline numeric citations only. Never add a References, Sources, Citations, Further Reading, or Links section at the end of the answer.",
         "Never output raw citation placeholder tokens such as MDTOKEN or internal markup tokens.",

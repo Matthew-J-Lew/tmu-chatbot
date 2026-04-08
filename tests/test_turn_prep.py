@@ -166,6 +166,15 @@ def test_student_support_queries_remain_supported():
     assert "mental health" in result.effective_question.lower()
 
 
+def test_high_stakes_rewrite_preserves_user_facing_answer_question():
+    state = SessionState(session_id="abc")
+    result = prepare_turn("abc", "I failed a class, what should I do?", state)
+
+    assert result.workflow_reply is None
+    assert "tmu student" in result.effective_question.lower()
+    assert result.answer_question == "I failed a class, what should I do?"
+
+
 def test_turn_prep_logger_is_stdout_backed():
     assert turn_prep.logger.level == turn_prep.logging.INFO
     assert turn_prep.logger.propagate is False
@@ -407,6 +416,7 @@ def test_mixed_supported_and_unrelated_question_only_keeps_supported_clause_for_
     assert "enroll in courses" in result.effective_question.lower()
     assert "uoft" not in result.effective_question.lower()
     assert "kick me out" not in result.effective_question.lower()
+    assert result.answer_question == "I need to enroll in courses"
 
 
 def test_mixed_supported_question_and_greeting_only_keeps_supported_clause_for_rag():
@@ -416,3 +426,4 @@ def test_mixed_supported_question_and_greeting_only_keeps_supported_clause_for_r
     assert result.workflow_reply is None
     assert result.state_after.last_intent == "COURSE_ENROLMENT"
     assert result.effective_question == "How do i join classes"
+    assert result.answer_question == "How do i join classes"

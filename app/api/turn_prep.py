@@ -111,6 +111,7 @@ class TurnPrepResult:
     state_before: SessionState
     state_after: SessionState
     effective_question: str
+    answer_question: str
     workflow_reply: Optional[str] = None
 
 
@@ -148,6 +149,7 @@ def prepare_turn(session_id: str, user_question: str, state_before: SessionState
         _remember_study_year(state_after, act.study_year)
 
     effective_question = routing_question.strip()
+    answer_question = effective_question
     workflow_reply: Optional[str] = None
 
     if _should_clear_pending_state_for_new_turn(act, state_before, detected_program):
@@ -243,6 +245,7 @@ def prepare_turn(session_id: str, user_question: str, state_before: SessionState
         else:
             if academic_intent in _HIGH_STAKES_INTENTS and choose_retrieval_policy(routing_question, routing_question).label != academic_intent:
                 effective_question = _rewrite_high_stakes_support_question(routing_question, academic_intent)
+                answer_question = routing_question.strip() or user_question.strip()
             else:
                 effective_question = _rewrite_supported_question(routing_question, state_before)
             if detected_program:
@@ -262,6 +265,7 @@ def prepare_turn(session_id: str, user_question: str, state_before: SessionState
             state_after.active_topic = None
             state_after.last_effective_question = None
         effective_question = user_question.strip()
+        answer_question = user_question.strip()
     else:
         state_after.last_effective_question = effective_question
 
@@ -270,6 +274,7 @@ def prepare_turn(session_id: str, user_question: str, state_before: SessionState
         state_before=state_before,
         state_after=state_after,
         effective_question=effective_question,
+        answer_question=answer_question,
         workflow_reply=workflow_reply,
     )
     log_turn_prep(result, save_for=session_id)

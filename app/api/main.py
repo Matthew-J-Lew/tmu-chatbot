@@ -593,7 +593,10 @@ def _is_curriculum_answer_question(question: str) -> bool:
 
 
 def build_messages_and_sources(
-    question: str, chunks: List[Dict[str, Any]], policy: Optional[RetrievalPolicy] = None
+    question: str,
+    chunks: List[Dict[str, Any]],
+    policy: Optional[RetrievalPolicy] = None,
+    display_question: Optional[str] = None,
 ) -> tuple[List[Dict[str, str]], Dict[int, SourceItem]]:
     """
     Build a strict prompt with numbered context passages.
@@ -624,10 +627,20 @@ def build_messages_and_sources(
         source_title = (c.get("source_title") or c.get("title") or url or "Official TMU source").strip()
         source_lookup[i] = SourceItem(id=i, url=url, title=source_title, section=section)
 
-    system_instructions = build_answer_system_instructions(question, policy)
+    display_q = (display_question or question).strip() or question
+    system_instructions = build_answer_system_instructions(display_q, policy)
+
+    retrieval_focus_block = ""
+    if normalize_question(display_q) != normalize_question(question):
+        retrieval_focus_block = (
+            f"RETRIEVAL FOCUS FOR CONTEXT SELECTION ONLY:\n{question}\n\n"
+            "Use this retrieval focus only to understand why these context passages were selected. "
+            "Write the final answer to the user's original question above, not to the retrieval focus wording.\n\n"
+        )
 
     user_content = (
-        f"USER QUESTION:\n{question}\n\n"
+        f"USER QUESTION:\n{display_q}\n\n"
+        f"{retrieval_focus_block}"
         f"CONTEXT PASSAGES:\n{''.join(context_lines)}\n"
         f"FINAL ANSWER (with citations):\n"
     )
@@ -768,7 +781,7 @@ async def chat(req: ChatRequest) -> ChatResponse:
 
     # ---- Prompt building ----
     start_prompt = perf_counter()
-    messages, source_lookup = build_messages_and_sources(effective_q, chunks, policy=policy)
+    messages, source_lookup = build_messages_and_sources(effective_q, chunks, policy=policy, display_question=turn.answer_question)
     prompt_ms = int((perf_counter() - start_prompt) * 1000)
 
     # ---- LLM call (rate-limited) ----
@@ -781,7 +794,7 @@ async def chat(req: ChatRequest) -> ChatResponse:
 
     llm_ms = int((perf_counter() - start_llm) * 1000)
 
-    answer = _sanitize_final_answer(raw, effective_q, policy=policy)
+    answer = _sanitize_final_answer(raw, turn.answer_question, policy=policy)
     answer, used_sources = _remap_answer_citations(answer, source_lookup)
     answer = _finalize_answer_after_citation_remap(answer)
     total_ms = int((perf_counter() - start_total) * 1000)
@@ -869,7 +882,7 @@ async def admin_chat(req: AdminChatRequest) -> AdminChatResponse:
 
     # ---- Prompt building ----
     start_prompt = perf_counter()
-    messages, source_lookup = build_messages_and_sources(effective_q, chunks, policy=policy)
+    messages, source_lookup = build_messages_and_sources(effective_q, chunks, policy=policy, display_question=turn.answer_question)
     prompt_ms = int((perf_counter() - start_prompt) * 1000)
 
     # ---- LLM call (rate-limited) ----
@@ -881,7 +894,7 @@ async def admin_chat(req: AdminChatRequest) -> AdminChatResponse:
             raise HTTPException(status_code=502, detail=f"LLM request failed: {e}")
     llm_ms = int((perf_counter() - start_llm) * 1000)
 
-    answer = _sanitize_final_answer(raw, effective_q, policy=policy)
+    answer = _sanitize_final_answer(raw, turn.answer_question, policy=policy)
     answer, used_sources = _remap_answer_citations(answer, source_lookup)
     answer = _finalize_answer_after_citation_remap(answer)
     total_ms = int((perf_counter() - start_total) * 1000)
@@ -970,7 +983,7 @@ async def chat_stream(req: ChatRequest):
 
     pool = get_pool()
     chunks = await retrieve(pool=pool, query=(policy.retrieval_query or effective_q), k=RAG_TOP_K, num_candidates=RAG_NUM_CANDIDATES, policy=policy)
-    messages, _source_lookup = build_messages_and_sources(effective_q, chunks, policy=policy)
+    messages, _source_lookup = build_messages_and_sources(effective_q, chunks, policy=policy, display_question=turn.answer_question)
 
     async def _iter():
         pending = ""

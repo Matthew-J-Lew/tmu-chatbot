@@ -191,3 +191,27 @@ def test_answer_style_explicitly_forbids_reference_blocks_and_placeholder_tokens
 def test_answer_style_handles_mixed_supported_and_unrelated_requests():
     instructions = build_answer_system_instructions("How do I enroll in classes?", policy=None)
     assert "If the user mixes supported TMU questions with unrelated or unsupported requests" in instructions
+
+
+def test_build_messages_and_sources_uses_original_user_question_when_display_question_differs():
+    messages, _ = build_messages_and_sources(
+        "What happens if a TMU student fails courses or is worried about academic probation or academic standing? Include immediate next steps and official support resources.",
+        [{
+            "chunk_url": "https://example.com/a",
+            "source_url": "https://example.com/a",
+            "section": "Support",
+            "chunk": "Official support details.",
+        }],
+        display_question="I failed a class, what should I do?",
+    )
+
+    content = messages[1]["content"]
+    assert "USER QUESTION:\nI failed a class, what should I do?" in content
+    assert "RETRIEVAL FOCUS FOR CONTEXT SELECTION ONLY:" in content
+    assert "What happens if a TMU student fails courses" in content
+
+
+def test_answer_style_mentions_original_user_wording_over_generic_retrieval_focus():
+    instructions = build_answer_system_instructions("I failed a class, what should I do?", policy=None)
+    assert "keep the final answer anchored to the user's original wording" in instructions
+    assert "Address the user directly with second-person phrasing" in instructions
