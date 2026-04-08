@@ -139,14 +139,15 @@ def prepare_turn(session_id: str, user_question: str, state_before: SessionState
     state_after.metadata = dict(state_after.metadata or {})
 
     detected_program = match_program(user_question)
-    act = _classify_conversation_act(user_question, state_before, detected_program)
+    routing_question = _extract_supported_question_portion(user_question, state_before, detected_program) or user_question
+    act = _classify_conversation_act(routing_question, state_before, detected_program)
 
     if detected_program and act.kind in {"PROGRAM_DECLARATION", "PROGRAM_CORRECTION"}:
         _remember_program(state_after, detected_program)
     if act.study_year:
         _remember_study_year(state_after, act.study_year)
 
-    effective_question = user_question.strip()
+    effective_question = routing_question.strip()
     workflow_reply: Optional[str] = None
 
     if _should_clear_pending_state_for_new_turn(act, state_before, detected_program):
@@ -172,7 +173,7 @@ def prepare_turn(session_id: str, user_question: str, state_before: SessionState
                 _remember_program(state_after, detected_program)
                 resumed_intent = state_after.pending_intent or "PROGRAM_REQUIREMENTS"
                 if resumed_intent == "COURSE_PLANNING":
-                    year = act.study_year or _year_for_supported_turn(user_question, state_before)
+                    year = act.study_year or _year_for_supported_turn(routing_question, state_before)
                     if year:
                         _remember_study_year(state_after, year)
                         effective_question = _course_planning_query(detected_program, year)
@@ -193,7 +194,7 @@ def prepare_turn(session_id: str, user_question: str, state_before: SessionState
             else:
                 workflow_reply = _COURSE_PLANNING_PROGRAM_PROMPT if state_after.pending_intent == "COURSE_PLANNING" else _PROGRAM_PROMPT
         elif state_after.pending_slot == "year":
-            year = act.study_year or _extract_study_year(user_question)
+            year = act.study_year or _extract_study_year(routing_question)
             if year and state_after.program:
                 _remember_study_year(state_after, year)
                 effective_question = _course_planning_query(state_after.program, year)
@@ -204,7 +205,7 @@ def prepare_turn(session_id: str, user_question: str, state_before: SessionState
             else:
                 workflow_reply = _YEAR_PROMPT
         elif academic_intent == "COURSE_PLANNING":
-            program = detected_program or _program_for_supported_turn(user_question, state_before)
+            program = detected_program or _program_for_supported_turn(routing_question, state_before)
             year = act.study_year or _year_for_supported_turn(user_question, state_before)
             if program:
                 if detected_program:
@@ -237,13 +238,13 @@ def prepare_turn(session_id: str, user_question: str, state_before: SessionState
                 state_after.pending_intent = academic_intent
                 workflow_reply = _PROGRAM_PROMPT
         elif academic_intent == "ACADEMIC_FOLLOW_UP":
-            effective_question = _rewrite_follow_up_with_context(user_question, state_before)
+            effective_question = _rewrite_follow_up_with_context(routing_question, state_before)
             state_after.active_topic = effective_question
         else:
-            if academic_intent in _HIGH_STAKES_INTENTS and choose_retrieval_policy(user_question, user_question).label != academic_intent:
-                effective_question = _rewrite_high_stakes_support_question(user_question, academic_intent)
+            if academic_intent in _HIGH_STAKES_INTENTS and choose_retrieval_policy(routing_question, routing_question).label != academic_intent:
+                effective_question = _rewrite_high_stakes_support_question(routing_question, academic_intent)
             else:
-                effective_question = _rewrite_supported_question(user_question, state_before)
+                effective_question = _rewrite_supported_question(routing_question, state_before)
             if detected_program:
                 _remember_program(state_after, detected_program)
                 state_after.pending_slot = None
@@ -281,6 +282,119 @@ def log_turn_prep(result: TurnPrepResult, save_for: Optional[str]) -> None:
     logger.info("EFFECTIVE_QUESTION=%s", result.effective_question)
     logger.info("STATE_AFTER=%s", json.dumps(asdict(result.state_after), sort_keys=True))
     logger.info("STATE_SAVED_FOR=%s", save_for)
+
+
+def _extract_supported_question_portion(
+    question: str,
+    state: SessionState,
+    detected_program: Optional[str],
+) -> Optional[str]:
+    clauses = _split_question_clauses(question)
+    if len(clauses) < 2:
+        return None
+
+    keep: list[str] = []
+    saw_supported = False
+    saw_unsupported = False
+    saw_social = False
+
+    for clause in clauses:
+        scope = _classify_clause_scope(clause, state, detected_program)
+        if scope in {"supported", "context"}:
+            keep.append(clause)
+        if scope == "supported":
+            saw_supported = True
+        elif scope == "unsupported":
+            saw_unsupported = True
+        elif scope == "social":
+            saw_social = True
+
+    if not saw_supported:
+        return None
+    if not (saw_unsupported or saw_social):
+        return None
+
+    filtered = _join_question_clauses(keep)
+    if not filtered:
+        return None
+    return filtered if filtered.strip() != question.strip() else None
+
+
+def _split_question_clauses(question: str) -> list[str]:
+    if not question or not question.strip():
+        return []
+
+    text = question.strip()
+    text = re.sub(
+        r"\b(and|but)(?=(i\b|can\b|could\b|would\b|what\b|where\b|when\b|who\b|how\b|why\b|is\b|are\b|do\b|does\b|should\b|will\b|tell\b|give\b|help\b))",
+        r"\1 ",
+        text,
+        flags=re.IGNORECASE,
+    )
+
+    sentence_parts = [seg.strip() for seg in re.split(r"[?!]+|(?<!\.)\.(?!\.)", text) if seg.strip()]
+    conjunction_split = re.compile(
+        r"\b(?:and|but|also)\b\s+(?=(?:i\b|i'm\b|im\b|can\b|could\b|would\b|what\b|where\b|when\b|who\b|how\b|why\b|is\b|are\b|do\b|does\b|should\b|will\b|tell\b|give\b|help\b))",
+        flags=re.IGNORECASE,
+    )
+
+    clauses: list[str] = []
+    for sentence in sentence_parts:
+        for part in conjunction_split.split(sentence):
+            clause = re.sub(r"^(and|but|also)\s+", "", part.strip(), flags=re.IGNORECASE)
+            clause = clause.strip(" ,;:-")
+            if clause:
+                clauses.append(clause)
+    return clauses
+
+
+def _classify_clause_scope(clause: str, state: SessionState, detected_program: Optional[str]) -> str:
+    q = _normalize(clause)
+    if not q:
+        return "neutral"
+
+    if any((
+        _is_greeting(q),
+        _is_acknowledgement(q),
+        _is_goodbye(q),
+        _is_identity_question(q),
+        _is_capability_question(q),
+        _is_confusion(q),
+        _is_smalltalk_clause(q),
+    )):
+        return "social"
+
+    clause_program = match_program(clause)
+    if clause_program and _is_program_declaration(clause):
+        return "context"
+
+    detected_year = _extract_study_year(clause)
+    if detected_year and len(q.split()) <= 4 and not any(token in q for token in ("course", "courses", "class", "classes", "program", "gpa", "probation")):
+        return "context"
+
+    if _asks_for_public_opinion(q) or _looks_like_out_of_scope_nonacademic_question(clause):
+        return "unsupported"
+
+    if _classify_high_stakes_support_intent(clause, q):
+        return "supported"
+
+    academic_intent = _classify_supported_academic_intent(clause, state, detected_program)
+    if academic_intent in _SUPPORTED_ACADEMIC_INTENTS or academic_intent == "RAG_QA":
+        return "supported"
+
+    if _looks_like_in_scope_tmu_question(clause):
+        return "supported"
+
+    return "neutral"
+
+
+def _join_question_clauses(clauses: list[str]) -> str:
+    parts: list[str] = []
+    for clause in clauses:
+        cleaned = clause.strip().strip(" ,;:-")
+        if cleaned:
+            parts.append(cleaned.rstrip(".?!"))
+    return ". ".join(parts).strip()
 
 
 def _classify_conversation_act(
@@ -328,9 +442,6 @@ def _classify_conversation_act(
 
     if _is_broad_in_scope_question(question):
         return ConversationAct("IN_SCOPE_CLARIFICATION", study_year=detected_year)
-
-    if _looks_like_out_of_scope_nonacademic_question(question):
-        return ConversationAct("UNSUPPORTED", study_year=detected_year)
 
     if _looks_like_in_scope_tmu_question(question):
         return ConversationAct("SUPPORTED_ACADEMIC", program=detected_program, academic_intent="RAG_QA", study_year=detected_year)
@@ -905,13 +1016,7 @@ def _looks_like_in_scope_tmu_question(question: str) -> bool:
         ))
         or "?" in question
     )
-    if not asks:
-        return False
-
-    if _has_supported_topic_signal(q):
-        return True
-
-    return False
+    return asks and _has_supported_topic_signal(q)
 
 
 def _is_broad_in_scope_question(question: str) -> bool:
@@ -1081,6 +1186,19 @@ def _is_capability_question(q: str) -> bool:
     return any(re.search(p, q) for p in patterns)
 
 
+def _is_smalltalk_clause(q: str) -> bool:
+    return any(
+        phrase in q
+        for phrase in (
+            "how are you",
+            "how r you",
+            "howre you",
+            "how s it going",
+            "how is it going",
+        )
+    )
+
+
 def _is_confusion(q: str) -> bool:
     patterns = (
         r"\bi do not know\b",
@@ -1126,19 +1244,21 @@ def _looks_like_academic_standing_distress(q: str) -> bool:
         "on probation",
         "required to withdraw",
         "rtw",
-        "kicked out",
-        "dismissed",
-        "suspended",
     )
     if any(phrase in q for phrase in explicit_phrases):
         return True
+
+    removal_terms = ("kicked out", "dismissed", "suspended")
+    removal_context = ("tmu", "university", "program", "school", "academic", "probation", "standing", "course", "courses", "class", "classes")
+    if any(term in q for term in removal_terms) and any(token in q for token in removal_context):
+        return True
+
     return any(token in q for token in ("fail", "failed", "failing")) and any(token in q for token in ("class", "classes", "course", "courses", "semester", "term"))
 
 
 def _looks_like_gpa_distress(q: str) -> bool:
     return any(phrase in q for phrase in (
         "my gpa is low", "low gpa", "gpa dropped", "gpa drops", "gpa fell", "gpa falls", "gpa is too low",
-        "my gpa is dropping", "gpa is dropping",
     ))
 
 
