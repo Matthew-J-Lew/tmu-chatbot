@@ -392,3 +392,24 @@ def test_chang_enrolment_question_reaches_rag():
 
     assert result.workflow_reply is None
     assert result.state_after.last_intent == "CHANG_ENROLMENT"
+
+
+def test_nonacademic_tmu_food_question_is_not_soft_admitted_to_rag():
+    state = SessionState(session_id="abc")
+    result = prepare_turn("abc", "Can I eat at the Eaton Centre even though I'm a TMU student?", state)
+
+    assert result.workflow_reply == turn_prep._FALLBACK_REPLY
+    assert result.state_after.last_effective_question is None
+
+
+
+def test_other_university_question_is_not_soft_admitted_to_rag():
+    state = SessionState(session_id="abc")
+    result = prepare_turn(
+        "abc",
+        "Im a TMU student and I really want to try going to UofT campus but im worried they'll kick me out, what should i do?",
+        state,
+    )
+
+    assert result.workflow_reply == turn_prep._FALLBACK_REPLY
+    assert result.state_after.last_effective_question is None

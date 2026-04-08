@@ -77,6 +77,14 @@ _OFFICIAL_INFO_LIMITATION_REPLY = (
     "Ask me about official TMU information instead, like admissions, programs, enrolment, or student services."
 )
 
+_HIGH_STAKES_INTENTS = {
+    "ACADEMIC_STANDING",
+    "GPA_STANDING",
+    "MISSED_ASSESSMENT",
+    "MENTAL_HEALTH_SUPPORT",
+    "STUDENT_SUPPORT",
+}
+
 
 def _build_turn_prep_logger() -> logging.Logger:
     """Create a logger that always writes turn-prep lines to container stdout."""
@@ -232,7 +240,10 @@ def prepare_turn(session_id: str, user_question: str, state_before: SessionState
             effective_question = _rewrite_follow_up_with_context(user_question, state_before)
             state_after.active_topic = effective_question
         else:
-            effective_question = _rewrite_supported_question(user_question, state_before)
+            if academic_intent in _HIGH_STAKES_INTENTS and choose_retrieval_policy(user_question, user_question).label != academic_intent:
+                effective_question = _rewrite_high_stakes_support_question(user_question, academic_intent)
+            else:
+                effective_question = _rewrite_supported_question(user_question, state_before)
             if detected_program:
                 _remember_program(state_after, detected_program)
                 state_after.pending_slot = None
@@ -303,8 +314,10 @@ def _classify_conversation_act(
         return ConversationAct("BOT_CAPABILITY")
     if _is_confusion(q):
         return ConversationAct("CONFUSION")
-    if _is_emotional_reaction(question, q):
-        return ConversationAct("EMOTIONAL_REACTION")
+
+    high_stakes_intent = _classify_high_stakes_support_intent(question, q)
+    if high_stakes_intent:
+        return ConversationAct("SUPPORTED_ACADEMIC", program=detected_program, academic_intent=high_stakes_intent, study_year=detected_year)
 
     academic_intent = _classify_supported_academic_intent(question, state, detected_program)
     if academic_intent in _SUPPORTED_ACADEMIC_INTENTS or academic_intent == "RAG_QA":
@@ -315,6 +328,9 @@ def _classify_conversation_act(
 
     if _is_broad_in_scope_question(question):
         return ConversationAct("IN_SCOPE_CLARIFICATION", study_year=detected_year)
+
+    if _looks_like_out_of_scope_nonacademic_question(question):
+        return ConversationAct("UNSUPPORTED", study_year=detected_year)
 
     if _looks_like_in_scope_tmu_question(question):
         return ConversationAct("SUPPORTED_ACADEMIC", program=detected_program, academic_intent="RAG_QA", study_year=detected_year)
@@ -377,13 +393,6 @@ def _route_conversation_act(
         else:
             reply = _FALLBACK_REPLY
         return RoutedTurn(reply=reply, intent_label="UTILITY", preserve_context=True)
-
-    if act.kind == "EMOTIONAL_REACTION":
-        return RoutedTurn(
-            reply="I understand. If you want, you can ask another Faculty of Arts question and I’ll do my best to help.",
-            intent_label="UTILITY",
-            preserve_context=True,
-        )
 
     if act.kind in {"PROGRAM_DECLARATION", "PROGRAM_CORRECTION"} and act.program:
         _remember_program(state_after, act.program)
@@ -548,6 +557,23 @@ def _course_planning_query(program: str, study_year: str) -> str:
         f"Only include courses or requirement groups that are explicitly supported by the exact year-specific curriculum evidence. "
         f"Unless the student explicitly asks about co-op, default to the standard full-time four-year path and mention any co-op variation only briefly if relevant."
     )
+
+
+def _rewrite_high_stakes_support_question(question: str, intent: str) -> str:
+    if intent == "ACADEMIC_STANDING":
+        return (
+            "What happens if a TMU student fails courses or is worried about academic probation or academic standing? "
+            "Include immediate next steps and official support resources."
+        )
+    if intent == "GPA_STANDING":
+        return "What happens if a TMU student's GPA falls or becomes too low? Include academic standing guidance and next steps."
+    if intent == "MISSED_ASSESSMENT":
+        return "What should a TMU student do if they miss a test, quiz, midterm, or exam? Include academic consideration guidance if available."
+    if intent == "MENTAL_HEALTH_SUPPORT":
+        return "What TMU mental health, counselling, and urgent student support resources are available?"
+    if intent == "STUDENT_SUPPORT":
+        return "What official TMU student support resources are available for a student who is struggling and needs help?"
+    return question.strip()
 
 
 def _rewrite_supported_question(question: str, state: SessionState) -> str:
@@ -798,6 +824,69 @@ def _asks_for_public_opinion(q: str) -> bool:
     )
 
 
+def _has_supported_topic_signal(q: str) -> bool:
+    supported_topic_tokens = (
+        "faculty of arts", "chang school", "myservicehub", "servicehub",
+        "course", "courses", "class", "classes", "program", "programs", "major", "minor",
+        "certificate", "co op", "coop", "admission", "admissions", "apply", "application",
+        "enroll", "enrol", "register", "waitlist", "wait list", "course intentions",
+        "academic consideration", "appeal", "appeals", "exam", "exams", "deadline", "deadlines",
+        "advisor", "advising", "gpa", "probation", "standing", "withdrawal", "required to withdraw",
+        "accommodation", "accommodations", "counselling", "counseling", "mental health", "wellbeing",
+        "student support", "support services", "financial aid", "osap", "service hub",
+    )
+    return any(token in q for token in supported_topic_tokens)
+
+
+def _looks_like_out_of_scope_nonacademic_question(question: str) -> bool:
+    q = _normalize(question)
+    if not q:
+        return False
+
+    if _has_supported_topic_signal(q):
+        return False
+
+    exceptions = (
+        "food bank",
+        "student wellbeing",
+        "wellbeing",
+        "counselling",
+        "counseling",
+        "mental health",
+    )
+    if any(token in q for token in exceptions):
+        return False
+
+    external_or_place_tokens = (
+        "uoft",
+        "university of toronto",
+        "york university",
+        "eaton centre",
+        "food court",
+        "food courts",
+        "restaurant",
+        "restaurants",
+        "mall",
+        "malls",
+        "washroom",
+        "washrooms",
+        "bathroom",
+        "bathrooms",
+        "toilet",
+        "toilets",
+        "hungry",
+        "eat on campus",
+        "eat at",
+        "food on campus",
+        "cafeteria",
+        "cafeterias",
+        "campus food",
+        "where can i eat",
+        "what do you know about uoft",
+    )
+    return any(token in q for token in external_or_place_tokens)
+
+
 def _looks_like_in_scope_tmu_question(question: str) -> bool:
     q = _normalize(question)
     if not q:
@@ -806,14 +895,9 @@ def _looks_like_in_scope_tmu_question(question: str) -> bool:
     if _asks_for_public_opinion(q):
         return False
 
-    domain_tokens = (
-        "tmu", "toronto metropolitan", "faculty of arts", "chang school", "myservicehub",
-        "course", "courses", "class", "classes", "program", "programs", "major", "minor",
-        "certificate", "co op", "coop", "admission", "admissions", "apply", "application",
-        "enroll", "enrol", "register", "waitlist", "wait list", "course intentions",
-        "academic consideration", "exam", "exams", "deadline", "advisor", "advising",
-        "gpa", "probation", "accommodation", "accommodations", "counselling", "counseling",
-    )
+    if _looks_like_out_of_scope_nonacademic_question(question):
+        return False
+
     asks = (
         q.startswith((
             "how", "what", "when", "where", "who", "can", "do", "does", "is", "are",
@@ -821,7 +905,13 @@ def _looks_like_in_scope_tmu_question(question: str) -> bool:
         ))
         or "?" in question
     )
-    return asks and any(token in q for token in domain_tokens)
+    if not asks:
+        return False
+
+    if _has_supported_topic_signal(q):
+        return True
+
+    return False
 
 
 def _is_broad_in_scope_question(question: str) -> bool:
@@ -948,8 +1038,10 @@ def _is_greeting(q: str) -> bool:
         return True
     tokens = q.split()
     greeting_tokens = {"hi", "hello", "hey", "hiya"}
-    stripped = [token for token in tokens if token in greeting_tokens]
-    return bool(stripped) and len(tokens) <= 6 and len(stripped) == len(tokens)
+    ignorable_tokens = {":(", ":)", ":3", ";)", "(:", "smh"}
+    meaningful = [token for token in tokens if token not in ignorable_tokens]
+    stripped = [token for token in meaningful if token in greeting_tokens]
+    return bool(stripped) and len(meaningful) <= 6 and len(stripped) == len(meaningful)
 
 
 def _is_acknowledgement(q: str) -> bool:
@@ -1005,14 +1097,76 @@ def _is_confusion(q: str) -> bool:
     return len(q.split()) <= 4 and any(re.search(p, q) for p in patterns)
 
 
-def _is_emotional_reaction(raw_question: str, q: str) -> bool:
-    patterns = (
-        r"\bohh?\b",
-        r"\bthat sucks\b",
-        r"\bthat is disappointing\b",
-        r"\bokay sad\b",
+def _classify_high_stakes_support_intent(raw_question: str, q: str) -> Optional[str]:
+    if _looks_like_academic_standing_distress(q):
+        return "ACADEMIC_STANDING"
+    if _looks_like_gpa_distress(q):
+        return "GPA_STANDING"
+    if _looks_like_missed_assessment_distress(q):
+        return "MISSED_ASSESSMENT"
+    if _looks_like_mental_health_distress(q):
+        return "MENTAL_HEALTH_SUPPORT"
+    if _looks_like_general_student_distress(q):
+        return "STUDENT_SUPPORT"
+    return None
+
+
+def _looks_like_academic_standing_distress(q: str) -> bool:
+    explicit_phrases = (
+        "failed all my classes",
+        "failed all my courses",
+        "failing all my classes",
+        "failing all my courses",
+        "failed everything",
+        "fail everything",
+        "failing everything",
+        "failed every class",
+        "failed every course",
+        "academic probation",
+        "on probation",
+        "required to withdraw",
+        "rtw",
+        "kicked out",
+        "dismissed",
+        "suspended",
     )
-    return ":(" in raw_question or (len(q.split()) <= 5 and any(re.search(p, q) for p in patterns))
+    if any(phrase in q for phrase in explicit_phrases):
+        return True
+    return any(token in q for token in ("fail", "failed", "failing")) and any(token in q for token in ("class", "classes", "course", "courses", "semester", "term"))
+
+
+def _looks_like_gpa_distress(q: str) -> bool:
+    return any(phrase in q for phrase in (
+        "my gpa is low", "low gpa", "gpa dropped", "gpa drops", "gpa fell", "gpa falls", "gpa is too low",
+        "my gpa is dropping", "gpa is dropping",
+    ))
+
+
+def _looks_like_missed_assessment_distress(q: str) -> bool:
+    return any(phrase in q for phrase in (
+        "missed my exam", "missed my test", "missed my quiz", "missed my midterm",
+        "i was sick and missed", "couldnt write my exam", "could not write my exam",
+    ))
+
+
+def _looks_like_mental_health_distress(q: str) -> bool:
+    distress_terms = (
+        "mental health", "depressed", "depression", "panic attack", "anxious", "overwhelmed", "burned out", "burnt out",
+        "cant cope", "can t cope", "can't cope", "hopeless", "need counselling", "need counseling",
+    )
+    help_signals = ("help", "support", "counselling", "counseling", "resources", "appointment")
+    student_context = ("class", "classes", "course", "courses", "semester", "school", "student", "tmu", "university")
+    return any(term in q for term in distress_terms) and (any(signal in q for signal in help_signals) or any(token in q for token in student_context))
+
+
+def _looks_like_general_student_distress(q: str) -> bool:
+    distress_terms = (
+        "sad", "upset", "struggling", "not okay", "not ok", "really bad", "need help", "need support",
+        "semester sucked", "term sucked", "semester was awful", "term was awful", "semester was rough", "term was rough",
+        "semester was terrible", "term was terrible", "my semester sucked", "my term sucked",
+    )
+    student_context = ("class", "classes", "course", "courses", "semester", "term", "program", "gpa", "probation", "tmu", "university")
+    return any(term in q for term in distress_terms) and any(token in q for token in student_context)
 
 
 def _is_program_declaration(question: str) -> bool:

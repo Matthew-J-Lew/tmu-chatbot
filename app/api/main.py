@@ -63,6 +63,8 @@ from app.rag.retrieval import retrieve
 
 app = FastAPI(title="TMU Faculty of Arts Chatbot API", version="3.1-prod")
 
+_ANSWER_SANITIZER_VERSION = "v4"
+
 # CORS is required for the web widget deployment.
 app.add_middleware(
     CORSMiddleware,
@@ -316,7 +318,7 @@ def build_response_cache_identity(
     cache_scope = policy.cache_token() if policy else "DEFAULT"
     raw_token = normalize_question(raw_question)
     effective_token = normalize_question(effective_question)
-    return f"{cache_scope}::raw={raw_token}::eff={effective_token}"
+    return f"{cache_scope}::raw={raw_token}::eff={effective_token}::san={_ANSWER_SANITIZER_VERSION}"
 
 
 def sanitize_question(q: str) -> str:
@@ -337,15 +339,26 @@ def sanitize_session_id(session_id: Optional[str]) -> str:
 
 
 def redact_pii(text: str) -> str:
-    # Basic regex-based PII redaction for safety (not perfect, but helps).
-    email = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
-    phone = re.compile(r"(\+?\d{1,3}[\s\-]?)?(\(?\d{3}\)?[\s\-]?)\d{3}[\s\-]?\d{4}")
-    student_id = re.compile(r"\b\d{9}\b")  # simple 9-digit pattern
+    """Redact likely personal identifiers without hiding official TMU contact info.
 
-    text = email.sub("[REDACTED_EMAIL]", text)
-    text = phone.sub("[REDACTED_PHONE]", text)
-    text = student_id.sub("[REDACTED_ID]", text)
-    return text
+    The chatbot should be able to return public TMU staff/resource emails and phone numbers,
+    so we preserve official TMU email domains and do not blanket-redact phone numbers.
+    We still redact likely student identifiers and non-TMU email addresses if they appear.
+    """
+    email = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
+    student_id = re.compile(r"\b\d{9}\b")  # simple 9-digit pattern
+    public_tmu_domains = ("torontomu.ca", "tmu.ca")
+
+    def _replace_email(match: re.Match[str]) -> str:
+        value = match.group(0)
+        domain = value.rsplit("@", 1)[-1].lower()
+        if any(domain == official or domain.endswith(f".{official}") for official in public_tmu_domains):
+            return value
+        return "[REDACTED_EMAIL]"
+
+    cleaned = email.sub(_replace_email, text or "")
+    cleaned = student_id.sub("[REDACTED_ID]", cleaned)
+    return cleaned
 
 
 def detect_intent(question: str) -> IntentInfo:
@@ -394,8 +407,51 @@ _TRAILING_REFERENCE_BLOCK_RE = re.compile(
     r'(?:\n|^)\s*(?:#{1,6}\s*(?:references?|sources?|citations?)\b[^\n]*|\*\*(?:references?|sources?|citations?)\*\*\s*:?(?:\s*)|(?:references?|sources?|citations?)\s*:)[\s\S]*$',
     re.IGNORECASE,
 )
-_MDTOKEN_RE = re.compile(r'__?MDTOKEN[_-]?\d+__?', re.IGNORECASE)
+_MDTOKEN_RE = re.compile(r'(?:__?)?MDTOKEN(?:[_-]?\d+)(?:__?)?', re.IGNORECASE)
 _ORPHAN_REFERENCE_LINE_RE = re.compile(r'^\s*(?:references?|sources?|citations?)\s*:?\s*$', re.IGNORECASE)
+
+
+_FINAL_OUTPUT_MDTOKEN_RE = re.compile(
+    r'(?ix)'
+    r'(?:[_\W]{0,4})'
+    r'mdtoken'
+    r'(?:\s*[_-]?\s*\d+)?'
+    r'(?:[_\W]{0,4})'
+)
+
+_ORPHAN_MDTOKEN_PUNCTUATION_RE = re.compile(
+    r'(?:(?<=^)|(?<=[\s(\[{]))[-–—,:;._]*\s*(?=[,.;:!?](?:\s|$))'
+)
+
+
+def _scrub_final_output(text: str) -> str:
+    """Last-mile cleanup applied immediately before any answer is returned.
+
+    This intentionally overlaps with earlier cleanup so cached answers, canonical answers,
+    workflow replies, and post-remap answers all pass through one final sanitizer.
+    """
+    cleaned = (text or '').strip()
+    if not cleaned:
+        return cleaned
+
+    prev = None
+    while cleaned != prev:
+        prev = cleaned
+        cleaned = _strip_trailing_reference_material(cleaned)
+        cleaned = _strip_mdtoken_leaks(cleaned)
+        cleaned = _FINAL_OUTPUT_MDTOKEN_RE.sub('', cleaned)
+        cleaned = _cleanup_citation_leftovers(cleaned)
+        cleaned = re.sub(r'(?m)^\s*(?:references?|sources?|citations?)\s*:\s*$', '', cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r'\(\s*\)', '', cleaned)
+        cleaned = re.sub(r'\[\s*\]', '', cleaned)
+        cleaned = re.sub(r'\{\s*\}', '', cleaned)
+        cleaned = _ORPHAN_MDTOKEN_PUNCTUATION_RE.sub('', cleaned)
+        cleaned = re.sub(r'(?:(?<=^)|(?<=[\s(\[{]))[-–—]+\.(?=\s|$)', '', cleaned)
+        cleaned = re.sub(r'\s+([,.;:!?])', r'\1', cleaned)
+        cleaned = re.sub(r'[ \t]+\n', '\n', cleaned)
+        cleaned = re.sub(r'\n{3,}', '\n\n', cleaned)
+        cleaned = cleaned.strip()
+    return cleaned
 
 
 def _strip_trailing_reference_material(text: str) -> str:
@@ -409,6 +465,7 @@ def _strip_trailing_reference_material(text: str) -> str:
 
 def _strip_mdtoken_leaks(text: str) -> str:
     cleaned = _MDTOKEN_RE.sub('', text or '')
+    cleaned = re.sub(r'(?i)\bmdtoken\b', '', cleaned)
     cleaned = re.sub(r'(?m)^\s*(?:references?|sources?|citations?)\s*:\s*[,;:._\- ]*$', '', cleaned, flags=re.IGNORECASE)
     kept: list[str] = []
     for raw_line in cleaned.splitlines():
@@ -420,7 +477,10 @@ def _strip_mdtoken_leaks(text: str) -> str:
         kept.append(line)
     cleaned = '\n'.join(kept)
     cleaned = re.sub(r'(?m)^\s*[,;:._\-]+\s*$', '', cleaned)
-    return cleaned
+    cleaned = re.sub(r'\(\s*[,;:._\-]*\s*\)', '', cleaned)
+    cleaned = re.sub(r'\[\s*[,;:._\-]*\s*\]', '', cleaned)
+    cleaned = re.sub(r'[ \t]{2,}', ' ', cleaned)
+    return cleaned.strip()
 
 
 def _cleanup_citation_leftovers(text: str) -> str:
@@ -494,7 +554,25 @@ def _finalize_answer_after_citation_remap(answer: str) -> str:
     cleaned = _strip_trailing_reference_material(cleaned)
     cleaned = _strip_mdtoken_leaks(cleaned)
     cleaned = _cleanup_citation_leftovers(cleaned)
-    return cleaned
+    return _scrub_final_output(cleaned)
+
+
+def _sanitize_final_answer(raw_answer: str, question: str, policy: Optional[RetrievalPolicy] = None) -> str:
+    cleaned = redact_pii(raw_answer).strip()
+    cleaned = _postprocess_answer(cleaned, question, policy=policy)
+    cleaned = _finalize_answer_after_citation_remap(cleaned)
+    return _scrub_final_output(cleaned)
+
+
+def _sanitize_cached_or_prebuilt_answer(answer: str) -> str:
+    """Re-sanitize answers loaded from cache or assembled outside the main LLM path.
+
+    This is intentionally stricter than a plain last-mile scrub so older cached answers,
+    workflow/canonical answers, and any prebuilt payloads still get the newest sanitizer.
+    """
+    cleaned = redact_pii(answer or "")
+    cleaned = _finalize_answer_after_citation_remap(cleaned)
+    return _scrub_final_output(cleaned)
 
 
 def _is_curriculum_answer_question(question: str) -> bool:
@@ -573,7 +651,7 @@ async def prepare_session_turn(question: str, session_id: Optional[str]) -> Turn
 def workflow_payload(answer: str, start_total: float, cache_ms: int = 0) -> Dict[str, Any]:
     total_ms = int((perf_counter() - start_total) * 1000)
     return {
-        "answer": answer,
+        "answer": _sanitize_cached_or_prebuilt_answer(answer),
         "sources": [],
         "latency_ms": total_ms,
         "timings": {
@@ -590,7 +668,7 @@ def workflow_payload(answer: str, start_total: float, cache_ms: int = 0) -> Dict
 def canonical_payload(answer: str, sources: List[Dict[str, Any]], start_total: float, cache_ms: int = 0) -> Dict[str, Any]:
     total_ms = int((perf_counter() - start_total) * 1000)
     return {
-        "answer": answer,
+        "answer": _sanitize_cached_or_prebuilt_answer(answer),
         "sources": sources,
         "latency_ms": total_ms,
         "timings": {
@@ -682,6 +760,7 @@ async def chat(req: ChatRequest) -> ChatResponse:
         cached_resp["timings"]["total_ms"] = int((perf_counter() - start_total) * 1000)
         cached_resp["latency_ms"] = cached_resp["timings"]["total_ms"]
         cached_resp["cached"] = True
+        cached_resp["answer"] = _sanitize_cached_or_prebuilt_answer(str(cached_resp.get("answer", "")))
         return ChatResponse(**cached_resp)
 
     # ---- Retrieval (cache retrieval separately) ----
@@ -702,13 +781,13 @@ async def chat(req: ChatRequest) -> ChatResponse:
 
     llm_ms = int((perf_counter() - start_llm) * 1000)
 
-    answer = _postprocess_answer(redact_pii(raw).strip(), effective_q, policy=policy)
+    answer = _sanitize_final_answer(raw, effective_q, policy=policy)
     answer, used_sources = _remap_answer_citations(answer, source_lookup)
     answer = _finalize_answer_after_citation_remap(answer)
     total_ms = int((perf_counter() - start_total) * 1000)
 
     payload = {
-        "answer": answer,
+        "answer": _scrub_final_output(answer),
         "sources": [s.dict() for s in used_sources],
         "latency_ms": total_ms,
         "timings": {
@@ -720,6 +799,8 @@ async def chat(req: ChatRequest) -> ChatResponse:
         },
         "cached": False,
     }
+
+    payload["answer"] = _sanitize_cached_or_prebuilt_answer(payload["answer"])
 
     # Cache the final response based on the effective question, not the raw user wording.
     await cache_set_json(resp_key, payload, CACHE_TTL_RESPONSE)
@@ -800,7 +881,7 @@ async def admin_chat(req: AdminChatRequest) -> AdminChatResponse:
             raise HTTPException(status_code=502, detail=f"LLM request failed: {e}")
     llm_ms = int((perf_counter() - start_llm) * 1000)
 
-    answer = _postprocess_answer(redact_pii(raw).strip(), effective_q, policy=policy)
+    answer = _sanitize_final_answer(raw, effective_q, policy=policy)
     answer, used_sources = _remap_answer_citations(answer, source_lookup)
     answer = _finalize_answer_after_citation_remap(answer)
     total_ms = int((perf_counter() - start_total) * 1000)
@@ -828,7 +909,7 @@ async def admin_chat(req: AdminChatRequest) -> AdminChatResponse:
         )
 
     payload = {
-        "answer": answer,
+        "answer": _sanitize_cached_or_prebuilt_answer(answer),
         "sources": [s.dict() for s in used_sources],
         "latency_ms": total_ms,
         "timings": {
@@ -870,13 +951,13 @@ async def chat_stream(req: ChatRequest):
 
     if turn.workflow_reply:
         async def _workflow_iter():
-            yield turn.workflow_reply
+            yield _sanitize_cached_or_prebuilt_answer(turn.workflow_reply)
         return StreamingResponse(_workflow_iter(), media_type="text/plain")
 
     canonical = maybe_answer_canonical_finite_question(q, policy.label)
     if canonical is not None:
         async def _canonical_iter():
-            yield canonical.answer
+            yield _sanitize_cached_or_prebuilt_answer(canonical.answer)
         return StreamingResponse(_canonical_iter(), media_type="text/plain")
 
     # If we already have a cached final response, stream it instantly
@@ -884,8 +965,7 @@ async def chat_stream(req: ChatRequest):
     cached_resp = await cache_get_json(resp_key)
     if cached_resp and "answer" in cached_resp:
         async def _cached_iter():
-            # Safety: ensure cached responses are also redacted.
-            yield redact_pii(str(cached_resp["answer"]))
+            yield _sanitize_cached_or_prebuilt_answer(str(cached_resp["answer"]))
         return StreamingResponse(_cached_iter(), media_type="text/plain")
 
     pool = get_pool()
@@ -893,11 +973,24 @@ async def chat_stream(req: ChatRequest):
     messages, _source_lookup = build_messages_and_sources(effective_q, chunks, policy=policy)
 
     async def _iter():
+        pending = ""
+        buffer_chars = 48
         async with _llm_semaphore:
             try:
                 async for piece in generate_stream(messages):
-                    # Chunk-level redaction; may miss patterns spanning boundaries.
-                    yield redact_pii(piece)
+                    pending += piece
+                    flush_upto = max(0, len(pending) - buffer_chars)
+                    if flush_upto <= 0:
+                        continue
+                    chunk = pending[:flush_upto]
+                    pending = pending[flush_upto:]
+                    cleaned_chunk = _scrub_final_output(_strip_mdtoken_leaks(redact_pii(chunk)))
+                    if cleaned_chunk:
+                        yield cleaned_chunk
+                if pending:
+                    tail = _scrub_final_output(_finalize_answer_after_citation_remap(redact_pii(_strip_mdtoken_leaks(pending))))
+                    if tail:
+                        yield tail
             except Exception as e:
                 yield f"\n\n[ERROR] LLM request failed: {e}"
 
